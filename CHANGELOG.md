@@ -26,6 +26,69 @@ inspector page. Tools are recorded under this heading as they are implemented, n
   in the committed `.env`, the provider key belongs in git-ignored `.env.local`, and `.env.example`
   lists every key with no values.
 
+## 0.0.2 — 2026-11-06 — M1
+
+The agent loop exists as an async generator, and both halves of the M1 exit test pass against
+`fake.ts` with no model server and no network.
+
+### Added
+
+- `src/harness/loop.ts` — `runAgent()`, the agent loop as an async generator that yields one
+  `HarnessEvent` per iteration as it happens, consumed with `for await`. It branches on the stop
+  reason: `stop` ends the run, `tool_calls` continues, `length` ends the run as truncated and is
+  never treated as a success, and no further round is attempted after a cut-off completion because
+  the arguments of a call cut off mid-write may themselves be partial. The caller owns the message
+  list: the loop appends to it and never rewrites an entry. A provider failure reaches the caller
+  rather than being turned into a tool result.
+- The iteration budget is a loop parameter — `maxIterations`, default `DEFAULT_MAX_ITERATIONS = 8` —
+  not an environment key. A budget that is not a positive integer raises before any provider call,
+  so a bad value cannot spend model inference.
+- Unknown tool names are answered **in data**: a `ToolResult` with `isError: true`, the model's own
+  `tool_call_id` and tool name, and a sentence saying no tool is wired up yet, then the loop
+  continues so the model can change strategy. At M1 no tool exists, so the loop sends no tool list
+  and every requested name is unknown. This interim branch moves into `dispatch.ts` at M3; no
+  registry was built in anticipation.
+- `src/harness/types.ts` — `HarnessEvent`, the union of the five variants the loop can produce
+  today: `ModelCallStartedEvent`, `ModelCallFinishedEvent`, `ToolCallRequestedEvent`,
+  `ToolResultEvent`, `RunFinishedEvent`, plus `RunFinishReason`
+  (`model_stop` | `model_truncated` | `iteration_cap_exhausted`). Truncation warnings and
+  tool-budget variants are a tool's own failure, so they are not declared before the tools exist.
+  `Message.toolCalls` was added: without it the conversation a provider sees is missing the model's
+  own request.
+- `test/loop-golden-transcript.test.ts` and `test/loop-iteration-cap.test.ts` — 11 tests, the two
+  halves of the exit test.
+
+### Exit test, both halves
+
+- Golden transcript: canned responses in, exact message list out, exact event list out. Recorded
+  from `fake.ts`, every expectation written by hand. Covers one spoken answer; a tool name that does
+  not exist answered with the model's own `tool_call_id`, where the second model call is shown the
+  refusal; `arguments` carried through unparsed; `length` reported as truncated rather than as a
+  completed answer, including a tool call that arrived inside a cut-off completion; and a provider
+  error reaching the caller.
+- Iteration cap: a fake that always asks for another tool call is stopped after exactly the budget —
+  3 model calls, 13 events, 7 messages, ending in `run_finished` with
+  `reason: 'iteration_cap_exhausted'` and `iterations: 3`. The same script cut to exactly 3 turns
+  passes without the fake raising `RangeError`, which proves the loop never asked for a fourth turn.
+  Given no budget the run stops at 8, and the fake recorded exactly 8 calls.
+- Commands, 2026-11-06, Node v24.12.0: `npm run test` → 3 files, 15 tests passed in 190 ms;
+  `npm run typecheck` → exit 0; `npm run lint` → exit 0. No model server was contacted, no network
+  request was made, and no test depends on wall-clock time.
+
+### Gaps recorded at M1
+
+- The gap recorded at M0 is now reachable: the loop appends assistant messages that carry tool
+  calls, and `strata.ts` `toWireMessage` drops `toolCalls`, so a real tool round-trip through Strata
+  is malformed. Left unfixed on purpose — a provider change inside a loop milestone mixes two
+  things. It is its own follow-up commit, and M2 needs it.
+- `npm run fmt` was not run. `npx oxfmt --list-different`, 2026-11-06: 18 files listed, including
+  untouched M0 files, because oxfmt has no config file in the repository and its defaults are double
+  quotes with semicolons while this codebase is written single-quote and semicolon-free. Running it
+  would rewrite the whole tree. The new files match the existing style; a `.oxfmtrc.json` is a
+  separate decision.
+- Still nothing outside the harness core: no streaming server function, no tools, no jail, no trace
+  writer, and the model server has still never been contacted.
+
 ## 0.0.1 — 2026-11-06 — M0
 
 The Provider seam exists, and both halves of the M0 exit test pass.

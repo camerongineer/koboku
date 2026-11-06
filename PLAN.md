@@ -2,7 +2,8 @@
 
 The harness is the product. The UI is a client of it.
 
-Status: M0 complete and released as 0.0.1 (2026-11-06). M1 — `loop.ts` — is the next milestone.
+Status: M0 and M1 complete, released as 0.0.1 and 0.0.2 (both 2026-11-06). M2 — the loop wired into
+a streaming server function — is the next milestone.
 `CHANGELOG.md` records what exists; §6 below is the order.
 
 ---
@@ -241,7 +242,8 @@ server, so not a partial adoption).
 
 ## 10. Standing defaults
 
-- Max iterations per run: **8**
+- Max iterations per run: **8**. Lives as the loop's own parameter — `runAgent({ maxIterations })`,
+  default `DEFAULT_MAX_ITERATIONS` in `loop.ts` — not as an environment key. Decided at M1.
 - Tool output cap: **800 lines / 20,000 bytes**, truncation reported
 - Temperature: **0**. Reasoning: **off** (a config flag, enabled later deliberately)
 - System prompt: short, in its own file, versioned separately so it can be experimented on
