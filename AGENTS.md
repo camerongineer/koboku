@@ -74,4 +74,4 @@ These hold at every milestone. A change that breaks one is not a small change.
 - At each milestone: show the diff, show the passing test output, explain what the files do, stop.
 - **Measure, do not assert.** Any performance, size, latency or availability claim names the command or API that produced it, its date, and — if the check was blocked or inconclusive — that fact.
 - Architecture and structure decisions belong to the project owner. Propose, state the trade-off, ask. Do not decide silently.
-- Local model server: **Strata**, OpenAI-compatible, `http://127.0.0.1:8080/v1`. Its API key is copied by hand into `.env`, never read into any committed file, never printed.
+- Local model server: **Strata**, OpenAI-compatible, `http://127.0.0.1:8080/v1`. Its API key lives only in git-ignored `.env.local`. It may be copied by hand or by a command, provided that command never echoes it, never writes it into a committed file, and never prints it.
