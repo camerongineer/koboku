@@ -51,7 +51,7 @@ These hold at every milestone. A change that breaks one is not a small change.
 6. Every tool carries a zod schema (which doubles as its `toJSONSchema()` payload) **and budgets**: max bytes, max depth, max results, per-call deadline. Budgets are validated with the arguments.
 7. The jail resolves to a canonical absolute path **first**, then checks containment in `workspace/`. There is no interactive approval gate in v1.
 8. Wire format, handled explicitly: tool `arguments` arrive as a JSON **string** (parse failure and invalid arguments are distinct failure modes); `content` is `null` when a tool call is requested; tool results must carry the model's `tool_call_id`; `finish_reason: "length"` is never treated as success.
-9. Secrets: `.env` is gitignored, `.env.example` is committed, nothing secret is `VITE_`-prefixed, no server function returns a secret. No `dotenv` package — use Node's `--env-file`.
+9. Secrets: the key lives in `.env.local` or `.env.*.local`, which are gitignored; `.env` carries non-secret configuration and is committed, as is `.env.example`. Nothing secret is `VITE_`-prefixed, and no server function returns a secret. No `dotenv` package — use Node's `--env-file`.
 10. Traces are written incrementally as JSON, one file per run, into `traces/`. Never accumulated in memory, never statically served, never committed.
 
 ## 4. Toolchain

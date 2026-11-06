@@ -90,22 +90,23 @@ HTTP API, and `fake.ts` returning scripted responses for tests.
 
 ## 4. Stack
 
-| Layer | Choice | Verified version | Role |
-|---|---|---|---|
-| Model server | Strata, local | context 262,144 / output 16,384 | Runs the quantised model, HTTP on `127.0.0.1:8080/v1` |
-| Model | `qwen3.8-flash-next-iq3_xxs` | reasoning **off**, temperature **0** | Heavily quantised local model |
-| Runtime | Node.js | 24.12 | Executes the server code. Dev and production target, fixed |
-| Framework | TanStack Start | 1.0 (stable 2026-10-13) | Routing, SSR, server functions, typed streaming, client/server build |
-| UI | React | project default | Chat page + trace inspector |
-| Language | TypeScript, full strict | 5.x | Checks our code before it runs. Erased when it runs |
-| Build / dev server | Vite | via Start | Replaces `tsx` for running the app |
-| Server runtime layer | Nitro (Node preset) | plugin under active development | Optional portability layer; Node target only in v1 |
-| Validation + budgets | **zod** | 4.6.7 | The only runtime dependency. Tool schemas, argument validation, `z.toJSONSchema()` |
-| Tests | vitest | 4.x | Golden transcripts and hardening scenarios |
-| Lint / format | oxlint / oxfmt | 1.91.0 / 0.76.0 | Dev-only |
-| Package manager | npm | 11.7 | pnpm is not on PATH on this machine |
-| Provider types | hand-written | — | We define Strata's request/response shapes ourselves |
-| Deliberately absent | `@tanstack/ai`, any LLM SDK, any agent framework | — | They would supply the loop this project implements |
+| Layer | Choice | Role |
+|---|---|---|
+| Model server | Strata, local | Runs the quantised model, HTTP on `127.0.0.1:8080/v1`, context 262,144 / output 16,384 |
+| Model | `qwen3.8-flash-next-iq3_xxs` | Heavily quantised local model; reasoning **off**, temperature **0** |
+| Runtime | Node.js | Executes the server code. Dev and production target, fixed |
+| Framework | TanStack Start | Routing, SSR, server functions, typed streaming, client/server build |
+| UI | React | Chat page + trace inspector |
+| Styling | Tailwind CSS + shadcn | shadcn components are copy-paste code under `src/components`, with Radix primitives beneath them |
+| Language | TypeScript, full strict | Checks our code before it runs. Erased when it runs |
+| Build / dev server | Vite | Replaces `tsx` for running the app |
+| Server runtime layer | Nitro (Node preset) | Optional portability layer; Node target only in v1. Plugin under active development |
+| Validation + budgets | **zod** | The harness core's only runtime dependency. Tool schemas, argument validation, `z.toJSONSchema()` |
+| Tests | vitest | Golden transcripts and hardening scenarios |
+| Lint / format | oxlint / oxfmt | Dev-only |
+| Package manager | npm | pnpm is not on PATH on this machine |
+| Provider types | hand-written | We define Strata's request/response shapes ourselves |
+| Deliberately absent | `@tanstack/ai`, any LLM SDK, any agent framework | They would supply the loop this project implements |
 
 Why zod earns its place: one schema per tool serves simultaneously as the JSON Schema sent
 to the model and the validator applied to what the model returned. Written separately, the

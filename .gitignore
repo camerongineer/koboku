@@ -13,6 +13,10 @@ dist/
 
 # run artefacts
 traces/
+.tanstack/
+
+# generated route map, rebuilt by npm run dev or npm run build
+src/routeTree.gen.ts
 
 # workspace contents: the jail keeps its files out of the repository
 workspace/*
