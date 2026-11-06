@@ -2,7 +2,8 @@
 
 The harness is the product. The UI is a client of it.
 
-Status: plan approved. No code written yet. Implementation starts at M0.
+Status: M0 complete and released as 0.0.1 (2026-11-06). M1 — `loop.ts` — is the next milestone.
+`CHANGELOG.md` records what exists; §6 below is the order.
 
 ---
 
