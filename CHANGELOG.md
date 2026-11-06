@@ -26,6 +26,40 @@ inspector page. Tools are recorded under this heading as they are implemented, n
   in the committed `.env`, the provider key belongs in git-ignored `.env.local`, and `.env.example`
   lists every key with no values.
 
-## 0.0.0 — not released
+## 0.0.1 — 2026-11-06 — M0
 
-No code exists yet. The repository contains the rules and the plan; implementation begins at M0.
+The Provider seam exists, and both halves of the M0 exit test pass.
+
+### Added
+
+- `src/harness/types.ts` — `Message`, `ToolCall`, `ToolResult`, `StopReason`, `TokenUsage`,
+  `AssistantTurn`. Hand-written: no SDK defines these shapes.
+- `src/harness/provider/provider.ts` — the `Provider` interface. One `generate()` call: a message list
+  and a tool list in, one assistant turn out.
+- `src/harness/provider/fake.ts` — a scripted provider with the same interface. It records every
+  request it receives and raises `RangeError` rather than invent a turn it was not given.
+- `src/harness/provider/strata.ts` — the real adapter: hand-written OpenAI-compatible request and
+  response shapes, validated with zod. A `finish_reason` outside `stop`, `tool_calls` or `length`
+  raises an error naming the value.
+- `src/harness/config.ts` — environment reading validated with zod. A failure names the offending keys
+  and the rules they broke, never the values.
+- `src/agent.functions.ts` — the server-function bridge, and a page at `/` that calls it.
+
+### Exit test, both halves
+
+- Vitest half: `npm run test`, 2026-11-06 — 1 file, 4 tests passed in 174 ms, no model server and no
+  network.
+- Server-function half: `npm run dev`, 2026-11-06 — a click on the page, and the browser network log
+  showing `GET /_serverFn/…` returning 200 in 72 ms. The page rendered the same canned reply the test
+  asserts.
+
+### Gaps recorded at M0
+
+- `strata.ts` sends `tool_call_id` on tool messages but does not yet send an assistant message that
+  carries tool calls. Nothing produces one until the loop exists at M1.
+- A request to a path with no route logs `notFoundError` on `__root__` and renders TanStack Router's
+  generic Not Found; no `defaultNotFoundComponent` is configured. The offending path was not
+  identified. Dev server log, 2026-11-06.
+- No `.env.local` exists, so `config.ts` has never run and Strata has never been contacted. Deliberate:
+  M0 must pass with no key.
+- No loop, no tools, no jail, no traces. `HarnessEvent` is not defined; it arrives with the loop at M1.
