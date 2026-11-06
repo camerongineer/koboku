@@ -15,7 +15,7 @@ Binding on humans and agents. Rationale lives **outside** the repository (§1).
 
 - Repo root: **`C:\Users\c-em\Repos\koboku`**. All paths below are relative to it. Never create a second working copy.
 - This repository holds: `README.md`, `CHANGELOG.md`, `PLAN.md`, `AGENTS.md`, and source code.
-- Name — **kōboku**, macron over the first `o`. Two registers, one name. **Prose** (README, CHANGELOG, commit messages, comments, human-facing UI labels): **kōboku**. **Code and identifiers** (folder, npm package name, repository name, imports, domains, any shell- or URL-reachable string): ASCII **`koboku`** — npm rejects non-ASCII package names (`EINVALIDTAGNAME`) and non-ASCII paths trouble Windows tooling. No other variant is in use: not `kouboku`, `houpo`, `honoki`, `hoboku`.
+- Name — **kōboku**, macron over the first `o`. Two registers, one name. **Prose** (README, CHANGELOG, comments, human-facing UI labels): **kōboku**. **Code and identifiers** (folder, npm package name, repository name, imports, domains, any shell- or URL-reachable string): ASCII **`koboku`** — npm rejects non-ASCII package names (`EINVALIDTAGNAME`) and non-ASCII paths trouble Windows tooling. **Wherever the macron would break or corrupt an operation, use ASCII `koboku` without hesitation** — shell commands, tool arguments, paths, commit messages, anything parsed by a program. A correct ASCII spelling is never an error. No other variant is in use: not `kouboku`, `houpo`, `honoki`, `hoboku`.
 - Documents state **what the project is and what the app does** at the time they were written — never as a learning exercise, never what a milestone taught.
 - `README.md` speaks at **app level**: what it is, roughly how it is used, its boundaries. Loop mechanics, internal seams, tool inventories and wire formats belong in `PLAN.md`, `CHANGELOG.md` and the code. Document a capability once it exists in code, not before.
 - `CHANGELOG.md` stays current: every user-visible change goes in **Unreleased**, in the commit that makes it. A completed milestone becomes its own versioned section with the date and the exit test that proved it. Tools are listed once implemented, never announced in advance.
@@ -25,8 +25,8 @@ Binding on humans and agents. Rationale lives **outside** the repository (§1).
 
 - Format `type(scope): subject`. Scope optional; subject imperative, ≤ 72 characters, no trailing period. Breaking change: `!` before the colon — `feat(provider)!: change tool result shape`.
 - Allowed types: `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`.
-- Subjects and bodies are prose: spell **kōboku** with the macron; paths, package names and identifiers stay ASCII. If a shell mangles `ō`, write the message to a UTF-8 file and use `git commit -F <file>`.
-- Bodies state **what changed and the constraint that forced it** — not design debates, rejected candidates, or measurements that only matter outside the repo.
+- Body: **one or two sentences** — what changed and the constraint that forced it. A large commit (a new tool, a restructure, a milestone) may carry a longer body. Never design debates, rejected candidates, or measurements that only matter outside the repo.
+- ASCII `koboku` is correct in any commit message, subject or body. Write the macron only where it costs nothing.
 - One commit per milestone step. Never mix a behaviour change with formatting or dependency churn. No amend after a milestone review: add a follow-up commit.
 
 Examples for this project:
@@ -44,7 +44,7 @@ docs: record M0 exit test results
 These hold at every milestone. A change that breaks one is not a small change.
 
 1. `src/harness/` never imports TanStack Start, React, or any UI/routing package. The harness core is framework-free.
-2. No agent framework and no LLM SDK. The **only** runtime dependency is `zod`.
+2. No agent framework and no LLM SDK. `src/harness/` has exactly **one** runtime dependency: `zod`. UI-layer dependencies are unrestricted, but nothing under `src/harness/` may import them.
 3. The agent loop is an **async generator** yielding one event per iteration. Callers consume it with `for await`.
 4. `provider/provider.ts` defines the interface; `strata.ts` and `fake.ts` implement it. Every test uses `fake.ts`.
 5. **Never tokenise locally.** Token counts come from provider-reported `usage`. A chars ÷ 4 number may appear only as a labelled pre-call estimate, never as a measurement.
@@ -56,10 +56,9 @@ These hold at every milestone. A change that breaks one is not a small change.
 
 ## 4. Toolchain
 
-- Node 24, npm 11.7. `pnpm` is not installed on this machine; do not assume it.
+- `pnpm` is not installed on this machine; do not assume it.
 - Tests `vitest` · lint `oxlint` · format `oxfmt` · strict `tsconfig` including `noUncheckedIndexedAccess`, ESM, `tsc --noEmit`.
 - Commands: `npm run dev`, `npm run test`, `npm run typecheck`, `npm run lint`, `npm run fmt`.
-- Typing `ō`: this machine's keyboard layout is 00000409 (US English), with no dead key for it. PowerShell and cmd accept `014D` then Alt+X (measured 2026-11-05: bytes 197,141 decode to U+014D). In HTML write `&#333;`. A literal `ō` in a shell command string is unreliable across consoles — prefer a UTF-8 file plus `git commit -F`.
 - `.gitattributes` sets `* text=auto eol=lf`, so the repository stores LF even though `core.autocrlf` is active on this machine. Keep formatting out of unrelated commits so it produces no line-ending churn.
 
 ## 5. Testing rules
