@@ -1,0 +1,19 @@
+# Normalise line endings: the repository stores LF regardless of the client's
+# core.autocrlf setting, so formatting commits never show whole-file churn.
+* text=auto eol=lf
+
+# Trailing-newline rules are documentation-shape only.
+*.md  text eol=lf
+*.ts  text eol=lf
+*.tsx text eol=lf
+*.json text eol=lf
+
+# Binary: never normalise, never diff as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary

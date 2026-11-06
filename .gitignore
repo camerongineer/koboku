@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# secrets - never committed, never VITE_-prefixed, never returned by a server function
+.env.local
+.env.*.local
+
+# build output
+dist/
+.output/
+.vinite/
+*.tsbuildinfo
+
+# run artefacts
+traces/
+
+# workspace contents: the jail keeps its files out of the repository
+workspace/*
+!workspace/.gitkeep
+
+# editor / OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
