@@ -26,6 +26,19 @@ inspector page. Tools are recorded under this heading as they are implemented, n
   in the committed `.env`, the provider key belongs in git-ignored `.env.local`, and `.env.example`
   lists every key with no values.
 
+### Fixed
+
+- `src/harness/provider/strata.ts` now serialises an assistant message that carries tool calls:
+  `tool_calls` with the model's own `id`, `type` set to `function`, and the `arguments` string sent
+  back exactly as stored — a cut-off string stays cut-off. Without it the loop's assistant turns were
+  dropped, so the next call would show the model the result of a request it was never shown making.
+  Recorded open at M0 and again at M1, closed in its own follow-up commit on 2026-11-08.
+- Measured 2026-11-08: `test/provider-strata-wire.test.ts`, 4 tests — the tool-call turn, a partial
+  `arguments` string, a turn that writes no `tool_calls` key at all, and a tool result carrying
+  `tool_call_id` with no tool name, since the wire has no place for one. `npm run test` → 4 files,
+  19 tests passed in 597 ms with no model server and no network; `npm run typecheck` → exit 0;
+  `npm run lint` → exit 0.
+
 ## 0.0.2 — 2026-11-06 — M1
 
 The agent loop exists as an async generator, and both halves of the M1 exit test pass against

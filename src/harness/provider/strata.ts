@@ -51,11 +51,33 @@ function toStopReason(raw: string): StopReason {
   throw new Error(`strata: unhandled finish_reason "${raw}"`)
 }
 
-function toWireMessage(message: Message): Record<string, unknown> {
+/**
+ * The wire shape of a requested call: the id the model invented, the kind, and a
+ * function block whose `arguments` stays the string it arrived as. Mirrors
+ * `toolCallSchema` above, which reads the same shape back in the response.
+ */
+function toWireToolCall(call: ToolCall): Record<string, unknown> {
+  return {
+    id: call.id,
+    type: 'function',
+    function: { name: call.name, arguments: call.arguments },
+  }
+}
+
+/**
+ * Exported so the wire shape can be asserted with no server and no network: this
+ * is the one place the conversation is translated into another format, and the
+ * translation is where a round-trip silently breaks.
+ */
+export function toWireMessage(message: Message): Record<string, unknown> {
   return {
     role: message.role,
     content: message.content,
     ...(message.toolCallId === undefined ? {} : { tool_call_id: message.toolCallId }),
+    // Omitted entirely when absent: an assistant turn with no calls carries no tool_calls key.
+    ...(message.toolCalls === undefined || message.toolCalls.length === 0
+      ? {}
+      : { tool_calls: message.toolCalls.map(toWireToolCall) }),
   }
 }
 

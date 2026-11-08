@@ -19,8 +19,8 @@ export interface Message {
   /**
    * On an assistant message: the calls the model asked for in that turn.
    * The conversation the next provider call sees is malformed without it: the
-   * model would not see its own request. Serialising it for the wire is the
-   * gap recorded in CHANGELOG.md at M0 and still open.
+   * model would not see its own request. `strata.ts` serialises it on the
+   * outgoing request as `tool_calls`.
    */
   toolCalls?: ToolCall[]
 }
