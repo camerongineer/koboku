@@ -1,4 +1,5 @@
 import type { Provider } from './provider/provider'
+import type { TraceWriter } from './trace'
 import type {
   HarnessEvent,
   Message,
@@ -18,8 +19,10 @@ import type {
  * finish, which is what makes live streaming available later without a second
  * code path (PLAN.md §2).
  *
- * Framework-free by rule: this file imports nothing but the Provider seam and the
- * conversation types. It is not a browser module and never a route module.
+ * Framework-free by rule: everything this file imports is a type — the Provider seam,
+ * the conversation vocabulary and the trace sink interface — so the loop carries no
+ * runtime dependency on a model adapter or on the filesystem. It is not a browser
+ * module and never a route module.
  */
 
 /** PLAN.md §10 standing default: max iterations per run. */
@@ -44,6 +47,14 @@ export interface RunOptions {
   maxOutputTokens: number
   /** Iteration budget for this run. Falls back to the standing default of 8. */
   maxIterations?: number
+  /**
+   * Optional sink for the events this run produces: the caller opens the trace,
+   * because the caller owns which run this is, and the loop fills it. Every event is
+   * written as it is produced, so a caller that stops consuming early still leaves
+   * behind a record of everything that had already happened. A sink that cannot write
+   * ends the run rather than letting it continue unrecorded.
+   */
+  trace?: TraceWriter
 }
 
 /**
@@ -88,9 +99,19 @@ export async function* runAgent(options: RunOptions): AsyncGenerator<HarnessEven
   let reason: RunFinishReason | undefined
   let iterations = 0
 
+  /**
+   * Record the event, then hand it on. Writing before yielding is what makes the
+   * trace independent of how the run is consumed: an event that is produced is in the
+   * record even if the reader throws it away.
+   */
+  const emit = (event: HarnessEvent): HarnessEvent => {
+    options.trace?.write(event)
+    return event
+  }
+
   for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
     iterations = iteration
-    yield { type: 'model_call_started', iteration }
+    yield emit({ type: 'model_call_started', iteration })
 
     // A snapshot, so a provider cannot reshape the conversation it was handed.
     const turn = await options.provider.generate({
@@ -106,24 +127,24 @@ export async function* runAgent(options: RunOptions): AsyncGenerator<HarnessEven
     totalUsage.inputTokens += turn.usage.inputTokens
     totalUsage.outputTokens += turn.usage.outputTokens
 
-    yield {
+    yield emit({
       type: 'model_call_finished',
       iteration,
       stopReason: turn.stopReason,
       toolCallCount: turn.toolCalls.length,
       usage: turn.usage,
-    }
+    })
 
     messages.push(assistantMessage(turn))
 
     for (const call of turn.toolCalls) {
-      yield {
+      yield emit({
         type: 'tool_call_requested',
         iteration,
         toolCallId: call.id,
         toolName: call.name,
         arguments: call.arguments,
-      }
+      })
 
       const result = unknownToolResult(call)
       messages.push({
@@ -132,7 +153,7 @@ export async function* runAgent(options: RunOptions): AsyncGenerator<HarnessEven
         toolCallId: result.toolCallId,
         toolName: result.toolName,
       })
-      yield { type: 'tool_result', iteration, result }
+      yield emit({ type: 'tool_result', iteration, result })
     }
 
     if (turn.stopReason === 'length') {
@@ -149,10 +170,10 @@ export async function* runAgent(options: RunOptions): AsyncGenerator<HarnessEven
     // 'tool_calls': the results it expects are now in the message list, so loop again.
   }
 
-  yield {
+  yield emit({
     type: 'run_finished',
     reason: reason ?? 'iteration_cap_exhausted',
     iterations,
     totalUsage,
-  }
+  })
 }

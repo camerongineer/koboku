@@ -31,10 +31,21 @@ inspector page. Tools are recorded under this heading as they are implemented, n
   directory; the directory created when absent; and the standing `traces/` default.
   `npm run test` → 5 files, 25 tests passed in 335 ms with no model server and no network;
   `npm run typecheck` → exit 0; `npm run lint` → exit 0.
-- Gaps recorded at this step: nothing calls `openTrace` yet, because the loop hands its events to the
-  caller and no caller hands them to a writer; the writer records no timestamps or durations, so M5's
-  "durations" clause is still unmet; and one open-write-close per event is a cost that has been
-  accepted here and measured nowhere, which is an M6 measurement.
+- `runAgent` now records its own events. `RunOptions` accepts an optional trace: the caller opens it,
+  because the caller decides which run this is, and the loop fills it. An event is written before it is
+  handed to the consumer, so a caller that stops consuming early still leaves a record of everything
+  that had already happened, and a sink that cannot write ends the run instead of letting it continue
+  unrecorded. The sink is imported as a type, so the loop still has no runtime dependency on the
+  filesystem.
+- Measured 2026-11-08: `test/loop-trace-sink.test.ts`, 4 tests — the file holds the header plus all
+  seven events in order; two events the caller discarded are still on disk; a sink that throws stops
+  the run with zero provider calls spent; and the same scripted run, watched and unwatched, yields the
+  identical event list. `npm run test` → 6 files, 29 tests passed in 319 ms with no model server and no
+  network; `npm run typecheck` → exit 0; `npm run lint` → exit 0.
+- Gaps recorded at this step: the writer records no timestamps or durations, so M5's "durations" clause
+  is still unmet; one open-write-close per event is a cost that has been accepted here and measured
+  nowhere, which is an M6 measurement; and nothing outside these tests opens a trace yet, because the
+  bridge still makes a single provider call and never runs the loop.
 
 ### Toolchain
 
