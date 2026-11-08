@@ -139,6 +139,7 @@ koboku/                       folder name is ASCII; prose spells the name kōbok
       config.ts             server-side environment only
     routes/                 Start routes: chat page, trace inspector
     components/
+    agent.run.ts            caller half of a run: open the trace, drive the loop. Framework-free.
     agent.functions.ts      thin server-function wrappers: the only bridge
   test/                     golden transcripts, hardening scenarios
   workspace/                the jail. The only path tools may touch.

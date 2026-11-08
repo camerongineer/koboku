@@ -42,10 +42,41 @@ inspector page. Tools are recorded under this heading as they are implemented, n
   the run with zero provider calls spent; and the same scripted run, watched and unwatched, yields the
   identical event list. `npm run test` → 6 files, 29 tests passed in 319 ms with no model server and no
   network; `npm run typecheck` → exit 0; `npm run lint` → exit 0.
+- `src/agent.run.ts` is the caller half of a run, and it has no framework in it: it opens a trace,
+  drives `runAgent` to its closing event and returns a plain `RunSummary` — run id, finish reason,
+  iterations, summed provider-reported usage and the last assistant text. The trace path is
+  deliberately not returned: a browser must not learn where the server keeps its files. The
+  provider is still the scripted one, so this step proves the composition rather than the model.
+- `src/agent.functions.ts` gained a second server function, `startRun`, wrapping that composition,
+  and the bridge now exports server functions and types and nothing else. That boundary is a
+  measurement, not a preference: the body of a server function stays on the server, but a plain
+  function **exported** from a bridge file is served to the browser together with everything it
+  imports. With `runRecorded` exported from the bridge the browser was served
+  `src/harness/trace.ts` and the page failed with `Module "node:fs" has been externalized for
+  browser compatibility. Cannot access "node:fs.appendFileSync" in client code`. After the split,
+  the same request for the same file returns 35 lines: two framework imports and two call stubs,
+  no harness import and no `node:fs`.
+- Measured 2026-11-08 in the running dev server (`npm run dev`, port 3000, Chromium): the page
+  calls `getCannedReply`, renders `the canned reply` with `model qwen3.8-flash-next-iq3_xxs`, and
+  the console holds no error. `loadConfig` reads `process.env` and `npm run dev` passes no env
+  file, and `loadConfig` refuses to return without the API key — so a rendered page is also the
+  proof that the standing configuration, key included, reaches the server runtime as the dev
+  script stands. No test reads that key.
+- Measured 2026-11-08: `test/bridge-run.test.ts`, 5 tests — a whitespace-only prompt refused before
+  anything is opened; one spoken iteration reported as `model_stop` after 1 iteration with the scripted
+  zero counts; a trace written into `traces/` by the loop itself, header first and `run_finished` last,
+  four records for one spoken iteration; the generated run id accepted by the trace guard; and a
+  response with no path in it. `npm run test` → 7 files, 34 tests passed in 350 ms with no model server,
+  no network and no browser — no test imports the framework any more; `npm run typecheck` → exit 0;
+  `npm run lint` → exit 0. The suite deletes every trace file it writes — measured: 0 files left in
+  `traces/` afterwards.
 - Gaps recorded at this step: the writer records no timestamps or durations, so M5's "durations" clause
   is still unmet; one open-write-close per event is a cost that has been accepted here and measured
-  nowhere, which is an M6 measurement; and nothing outside these tests opens a trace yet, because the
-  bridge still makes a single provider call and never runs the loop.
+  nowhere, which is an M6 measurement; `startRun` still cannot be called from a page — with no validator
+  its request type is `undefined`, and `startRun({ data: 'a prompt' })` is rejected by `tsc` with
+  "Type 'string' is not assignable to type 'undefined'", measured 2026-11-08 — so no request of it has
+  ever crossed the boundary; and a run id is built from the clock and randomness, with nothing checking
+  that two runs cannot collide.
 
 ### Toolchain
 
