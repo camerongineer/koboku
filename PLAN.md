@@ -2,8 +2,8 @@
 
 The harness is the product. The UI is a client of it.
 
-Status: M0 and M1 complete, released as 0.0.1 and 0.0.2 (both 2026-11-06). M2 — the loop wired into
-a streaming server function — is the next milestone.
+Status: M0 and M1 complete, released as 0.0.1 and 0.0.2 (both 2026-11-06). M2 is in progress: its
+first step, the incremental trace writer, is written and tested.
 `CHANGELOG.md` records what exists; §6 below is the order.
 
 ---
@@ -156,10 +156,10 @@ real trace file read line by line.
 |---|---|---|
 | **M0** | Scaffold Start. Wire strict `tsconfig`, vitest, oxlint, oxfmt, `.env` + `.env.example`, `.gitignore`, `git init`. Write `types.ts`, the `Provider` interface, `strata.ts`, `fake.ts`, `config.ts`. | A vitest test round-trips a canned reply through the interface. A server function called from the page returns that same canned reply. |
 | **M1** | `loop.ts` as an async generator, against `fake.ts` only. No real model, no tools. Includes the case where the fake provider asks for a tool that does not exist: unknown tool names are a handled failure mode, not an unhandled branch. | Golden transcript: canned responses in, exact expected message list out. Iteration cap proven to stop a looping fake model. |
-| **M2** | Loop wired into a streaming server function; browser renders iterations live. First real Strata calls. | Tokens/iterations appear in the page as they happen. A real trace file exists and matches what the UI showed. |
+| **M2** | Loop wired into a streaming server function; browser renders iterations live. First real Strata calls. Includes `trace.ts` writing incrementally to `traces/`, pulled forward from M5 because this exit test reads a real trace file. | Tokens/iterations appear in the page as they happen. A real trace file exists and matches what the UI showed. |
 | **M3** | `registry.ts` + `dispatch.ts` (validation **and** budgets) + `read_file`. Native function calling against Strata. | The model reads a file unprompted and answers a question about its contents. A quantised model invents parameter and tool names, so the exit test runs against `fake.ts` transcripts that reproduce invented names, and the real-model run is recorded rather than gated. |
 | **M4** | `write_file` + `jail.ts`. | Attempts to escape the jail via `..`, an absolute path, or a symlink are rejected, and the rejection is reported to the model as data. |
-| **M5** | `trace.ts` writing incrementally to disk + a trace inspector page. | A bad run can be diagnosed from the UI alone: iterations, tool calls, tool results, stop reasons, durations, provider-reported token usage. |
+| **M5** | A trace inspector page, reading what M2's writer already produces. | A bad run can be diagnosed from the UI alone: iterations, tool calls, tool results, stop reasons, durations, provider-reported token usage. |
 | **M6** | Measurement spike — the performance gate. See section 8. | Five recorded measurements, before any decision about a different server. |
 | **M7** | Hardening scenarios. | All green and repeatable: unparseable `arguments` string, valid-typed-but-nonsense arguments, tool raises, `length` truncation, iteration cap exhausted, jail escape attempts. |
 | **M8** | Targeted edit tool: find a span and replace it, with budgets and a bounded matching strategy. | The model changes one line without reproducing the whole file. |

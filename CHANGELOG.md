@@ -14,6 +14,28 @@ with the date and the tests that proved it.
 The scope of v1, as planned: a local, single-user agent harness with a browser chat page and a trace
 inspector page. Tools are recorded under this heading as they are implemented, not before.
 
+### Added
+
+- `src/harness/trace.ts` writes the run trace: one file per run into git-ignored `traces/`, one JSON
+  record per line, appended the moment the event happens instead of collected and written at the end.
+  The first line names the run and the model; every line after it is a harness event as it was
+  yielded — the model's own `tool_call_id`, its `arguments` string still unparsed, and the
+  provider-reported token counts. A run id that would place the file outside `traces/` is refused
+  before anything is created. Recorded 2026-11-08 as the first step of M2: the writer was pulled
+  forward from M5 because M2's exit test reads a real trace file, and M5 keeps the inspector page.
+- Measured 2026-11-08: `test/trace-writer.test.ts`, 6 tests — one file per run with its own header;
+  each event already on disk while the run is still in progress, proven by the scripted provider
+  having been asked nothing at the moment asserted rather than by a clock; a cut-off `arguments`
+  string recorded byte for byte and still unparseable; eight run ids refused (`../escaped`,
+  `..\escaped`, `a/b`, `a\b`, `..`, `.`, an empty id, `C:evil`) with nothing written outside the
+  directory; the directory created when absent; and the standing `traces/` default.
+  `npm run test` → 5 files, 25 tests passed in 335 ms with no model server and no network;
+  `npm run typecheck` → exit 0; `npm run lint` → exit 0.
+- Gaps recorded at this step: nothing calls `openTrace` yet, because the loop hands its events to the
+  caller and no caller hands them to a writer; the writer records no timestamps or durations, so M5's
+  "durations" clause is still unmet; and one open-write-close per event is a cost that has been
+  accepted here and measured nowhere, which is an M6 measurement.
+
 ### Toolchain
 
 - TanStack Start on Vite and React, Node target only. Tailwind CSS and shadcn carry the styling; the
