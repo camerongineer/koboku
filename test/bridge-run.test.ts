@@ -26,6 +26,9 @@ const config: HarnessConfig = {
   apiKey: 'inert-value-not-a-secret',
   temperature: 0,
   maxOutputTokens: 128,
+  // Required by the config type, and unused here: this test streams a run with no tools, so no
+  // jail is opened over it.
+  workspaceDir: 'bridge-test-workspace-that-is-never-opened',
 }
 
 const writtenTracePaths: string[] = []

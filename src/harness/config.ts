@@ -11,6 +11,13 @@ const envSchema = z.object({
   KOBOKU_PROVIDER_API_KEY: z.string().min(1),
   KOBOKU_TEMPERATURE: z.coerce.number().min(0).max(2).default(0),
   KOBOKU_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(4096),
+  /**
+   * The directory the jail resolves over. Left as written rather than resolved here: the jail
+   * canonicalises the root it is given, so this file stays the place that validates values and
+   * not a second place that also knows about paths. Measured 2026-11-08 with node v24.12.0: a
+   * relative root becomes `C:\Users\c-em\Repos\koboku\workspace` once `realpathSync` has seen it.
+   */
+  KOBOKU_WORKSPACE_DIR: z.string().min(1).default('workspace'),
 })
 
 export interface HarnessConfig {
@@ -19,6 +26,8 @@ export interface HarnessConfig {
   apiKey: string
   temperature: number
   maxOutputTokens: number
+  /** Canonical or relative — the jail resolves it either way. */
+  workspaceDir: string
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): HarnessConfig {
@@ -37,5 +46,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): HarnessConfig 
     apiKey: parsed.data.KOBOKU_PROVIDER_API_KEY,
     temperature: parsed.data.KOBOKU_TEMPERATURE,
     maxOutputTokens: parsed.data.KOBOKU_MAX_OUTPUT_TOKENS,
+    workspaceDir: parsed.data.KOBOKU_WORKSPACE_DIR,
   }
 }
