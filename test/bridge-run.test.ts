@@ -7,7 +7,9 @@ import { streamRun, type RunStreamValue, type RunSummary } from '../src/agent.ru
 import type { HarnessConfig } from '../src/harness/config'
 import { cannedTurn, fakeProvider, type FakeProvider } from '../src/harness/provider/fake'
 import type { Provider } from '../src/harness/provider/provider'
+import { createRegistry, type Tool, type ToolRegistry } from '../src/harness/tools/registry'
 import type { HarnessEvent } from '../src/harness/types'
+import { z } from 'zod'
 
 /**
  * M2, step six: a run is given its provider. These tests hand in the scripted one, which is
@@ -50,9 +52,10 @@ function tracePathFor(summary: RunSummary): string {
 async function drainRun(
   prompt: string,
   provider: Provider,
+  registry?: ToolRegistry,
 ): Promise<{ events: HarnessEvent[]; summary: RunSummary }> {
   const values: RunStreamValue[] = []
-  const run = streamRun(prompt, provider, config)
+  const run = streamRun(prompt, provider, config, registry)
 
   let step = await run.next()
   while (!step.done) {
@@ -172,6 +175,56 @@ describe('the bridge running a recorded loop', () => {
     // Trimmed on the way in: this is what the provider was actually asked, which is the
     // only proof of trimming that survives the provider no longer being built here.
     expect(provider.calls[0]?.messages[0]?.content).toBe('Read notes.txt.')
+  })
+
+  it('hands a declared tool to the provider, and its result back to the model', async () => {
+    // A stand-in tool, because this file proves the wiring and not the filesystem: the composition
+    // receives a registry and passes it on, and does not build one of its own.
+    const executed: unknown[] = []
+    const tool: Tool = {
+      name: 'read_file',
+      description: 'Stand-in tool. Reads nothing: no jail is opened in this test.',
+      arguments: z.object({ path: z.string().min(1) }),
+      budgets: { maxBytes: 512, deadlineMs: 1000 },
+      execute: async (args) => {
+        executed.push(args)
+        return { output: 'the answer is 42', isError: false }
+      },
+    }
+    const provider = fakeProvider([
+      {
+        content: null,
+        toolCalls: [{ id: 'call_bridge_1', name: 'read_file', arguments: '{"path":"notes.txt"}' }],
+        stopReason: 'tool_calls',
+        usage: { inputTokens: 20, outputTokens: 8 },
+      },
+      { content: 'It says 42.', toolCalls: [], stopReason: 'stop', usage: { inputTokens: 31, outputTokens: 5 } },
+    ])
+
+    const { events, summary } = await drainRun('What does notes.txt say?', provider, createRegistry([tool]))
+
+    // The declared tool is on the request the model was given, which is what makes a tool call
+    // possible at all.
+    expect((provider.calls[0]?.tools ?? []).map((declared) => declared.name)).toEqual(['read_file'])
+    expect(executed).toEqual([{ path: 'notes.txt' }])
+
+    const resultEvent = events.find((event) => event.type === 'tool_result')
+    if (resultEvent?.type !== 'tool_result') {
+      throw new Error('expected a tool_result event for the call the model asked for')
+    }
+    expect(resultEvent.result.output).toBe('the answer is 42')
+    expect(resultEvent.result.isError).toBe(false)
+
+    // What the page shows is the answer that came after the tool ran, not the tool output itself.
+    expect(summary.finalContent).toBe('It says 42.')
+    expect(summary.iterations).toBe(2)
+  })
+
+  it('declares no tools when the caller hands in no registry', async () => {
+    const provider = scripted('no tools then')
+    await runAndTrack('Read notes.txt.', provider)
+
+    expect(provider.calls[0]?.tools).toEqual([])
   })
 
   it('writes a trace for the run into the standing directory', async () => {

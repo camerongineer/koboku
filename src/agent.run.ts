@@ -1,6 +1,7 @@
 import type { HarnessConfig } from './harness/config'
 import { runAgent } from './harness/loop'
 import { openTrace } from './harness/trace'
+import type { ToolRegistry } from './harness/tools/registry'
 import type { Provider } from './harness/provider/provider'
 import type { HarnessEvent, Message, RunFinishReason, TokenUsage } from './harness/types'
 
@@ -58,6 +59,9 @@ export type RunStreamValue = HarnessEvent | RunSummaryValue
  * `test/bridge-run.test.ts` run against a scripted provider with an inert config while
  * `src/agent.functions.ts` runs against the real server with the standing one.
  *
+ * The tools come from the caller too, and none are built here: a tool that touches the filesystem
+ * needs a jail, and a jail is opened by whoever owns the directory the run is confined to.
+ *
  * It is an async generator for the same reason `runAgent` is (AGENTS.md §3, rule 3): the
  * caller sees each iteration the moment it happens. The harness event union is not widened
  * by any of this — the summary is a value this composition adds at the end, not a new kind
@@ -71,6 +75,7 @@ export async function* streamRun(
   prompt: string,
   provider: Provider,
   config: HarnessConfig,
+  registry?: ToolRegistry,
 ): AsyncGenerator<RunStreamValue, void, void> {
   const request = prompt.trim()
   if (request === '') {
@@ -89,6 +94,9 @@ export async function* streamRun(
     messages,
     temperature: config.temperature,
     maxOutputTokens: config.maxOutputTokens,
+    // Passed through, not built here: which tools a run may use is decided by the caller that owns
+    // the run, and `config.workspaceDir` is the directory a jail was opened over to make them.
+    registry,
     trace,
   })) {
     // Each event is handed to the caller as the loop yields it, and the trace already
