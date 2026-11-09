@@ -1,10 +1,9 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 
-import { streamRun, type RunSummary } from './agent.run'
+import { streamRun, type RunStreamValue } from './agent.run'
 import { loadConfig } from './harness/config'
 import { cannedTurn, fakeProvider } from './harness/provider/fake'
-import type { HarnessEvent } from './harness/types'
 
 /**
  * The bridge. This is the only kind of file allowed to know about both worlds: it may
@@ -26,6 +25,13 @@ export interface Reply {
   outputTokens: number
   model: string
 }
+
+/**
+ * Re-exported so a page can name what a stream carries without importing the composition module,
+ * which is the file that touches the filesystem. Both are type-only: erased at compile time, and
+ * measured 2026-11-08 to add nothing to what the browser is served.
+ */
+export type { RunSummary } from './agent.run'
 
 /**
  * The same canned reply the vitest test asserts, reached through the same
@@ -63,13 +69,13 @@ export const getCannedReply = createServerFn({ method: 'GET' }).handler(async ()
 
 /**
  * One run, streamed. The page calls it as `startRun({ data: { prompt: '…' } })` and reads the
- * result with `for await`: each harness event arrives while the run is still going.
+ * result with `for await`: each harness event arrives while the run is still going, and the last
+ * value on the stream is the closing summary, tagged `run_summary` so a reader can tell it apart.
  *
- * What the wire carries was measured 2026-11-08 in the running app, and the type and the wire
- * do not agree. The value the caller gets is an async iterable — `Symbol.asyncIterator` present,
- * `next` and `return` both `undefined`, prototype `null` — so only the *yielded* values cross and
- * the generator's return value, this handler's `RunSummary`, does not. Three events arrived and
- * no fourth value. A caller therefore cannot read a summary from this stream yet.
+ * The shape of this handler was decided by measurement rather than by the type. The wire carries
+ * yielded values only: what the caller gets is an async iterable — `Symbol.asyncIterator` present,
+ * `next` and `return` both `undefined`, prototype `null` — so a returned summary crosses nothing,
+ * and measured 2026-11-08 three events arrived with no fourth value. Hence the summary is yielded.
  *
  * The validator is what makes the call possible at all, and that too was measured. Without one,
  * the request type is `undefined` and `startRun({ data: 'x' })` is refused by `tsc` with "Type
@@ -80,6 +86,6 @@ export const getCannedReply = createServerFn({ method: 'GET' }).handler(async ()
  */
 export const startRun = createServerFn({ method: 'POST' })
   .validator(z.object({ prompt: z.string() }))
-  .handler(async function* ({ data }): AsyncGenerator<HarnessEvent, RunSummary, void> {
-    return yield* streamRun(data.prompt)
+  .handler(async function* ({ data }): AsyncGenerator<RunStreamValue, void, void> {
+    yield* streamRun(data.prompt)
   })

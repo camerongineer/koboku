@@ -37,24 +37,39 @@ export interface RunSummary {
 }
 
 /**
+ * The last value on the stream, and the reason it is a value rather than the generator's
+ * return: measured 2026-11-08 in the running app, the wire carries yielded values only. The
+ * caller receives an async iterable — `Symbol.asyncIterator` present, `next` and `return`
+ * absent — and a generator's return value is not one of the values an iterable yields, so a
+ * summary returned that way reaches no one. Tagged, because it shares the stream with the
+ * harness events and a reader has to be able to tell them apart.
+ */
+export interface RunSummaryValue {
+  type: 'run_summary'
+  summary: RunSummary
+}
+
+/** What one streamed run puts on the wire: the harness events, then the summary. */
+export type RunStreamValue = HarnessEvent | RunSummaryValue
+
+/**
  * One recorded run, streamed. `config` defaults to the real environment because the
  * harness owns the standing values; passing one in is what lets a test run without the
  * key in `process.env`, the same shape `loadConfig` itself uses for the environment.
  *
  * It is an async generator for the same reason `runAgent` is (AGENTS.md §3, rule 3): the
- * caller sees each iteration the moment it happens instead of a summary at the end. The
- * summary is the generator's *return* value, which `for await` discards, so a caller that
- * wants it drives the generator by hand with `next()` — as `test/bridge-run.test.ts` and
- * the bridge's own handler do.
+ * caller sees each iteration the moment it happens. The harness event union is not widened
+ * by any of this — the summary is a value this composition adds at the end, not a new kind
+ * of harness event.
  *
- * One consequence of that shape is worth knowing: the body of an async generator does not
+ * One consequence of the shape is worth knowing: the body of an async generator does not
  * run until the first `next()`. Asking for a bad prompt is not rejected when this function
  * is called, it is rejected when the first event is asked for. Nothing is opened either way.
  */
 export async function* streamRun(
   prompt: string,
   config: HarnessConfig = loadConfig(),
-): AsyncGenerator<HarnessEvent, RunSummary, void> {
+): AsyncGenerator<RunStreamValue, void, void> {
   const request = prompt.trim()
   if (request === '') {
     throw new Error('bridge: a run needs a prompt')
@@ -99,7 +114,7 @@ export async function* streamRun(
     // not an unusual conversation. Saying so is better than returning an empty summary.
     throw new Error('bridge: the run ended without a run_finished event')
   }
-  return finish
+  yield { type: 'run_summary', summary: finish }
 }
 
 /**

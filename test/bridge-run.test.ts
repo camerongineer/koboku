@@ -3,17 +3,17 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { streamRun, type RunSummary } from '../src/agent.run'
+import { streamRun, type RunStreamValue, type RunSummary } from '../src/agent.run'
 import type { HarnessConfig } from '../src/harness/config'
 import type { HarnessEvent } from '../src/harness/types'
 
 /**
- * M2, step four: the run is streamed. The composition is an async generator, so these
- * tests drive it with `next()` exactly as the bridge's handler and the page do — which
- * lets them assert the order things arrive in, not only what arrives at the end. The
- * composition is imported from `src/agent.run.ts`, which has no framework in it, so these
- * tests need neither the framework nor a browser. No model server, no network, no
- * clock-dependent assertion.
+ * M2, step five: the run is streamed, and the closing summary travels as the stream's last
+ * value. These tests drive the generator with `next()` — which the wire cannot, having no
+ * `next` of its own — so they can assert the order values arrive in and not only what
+ * arrives at the end. The composition is imported from `src/agent.run.ts`, which has no
+ * framework in it, so these tests need neither the framework nor a browser. No model
+ * server, no network, no clock-dependent assertion.
  */
 
 // A stand-in for the standing config. The key value is inert: the scripted provider is
@@ -39,23 +39,32 @@ function tracePathFor(summary: RunSummary): string {
 }
 
 /**
- * Drives the generator the way its callers must: pull each event with `next()`, and take
- * the summary from the `done` result, which is where an async generator's return value
- * lands. `for await` would read the same events but throw that return value away.
+ * Pulls every value off the stream. The summary is read from the yielded values, not from the
+ * generator's return, because that is the only shape the wire can carry.
  */
 async function drainRun(prompt: string): Promise<{ events: HarnessEvent[]; summary: RunSummary }> {
-  const events: HarnessEvent[] = []
+  const values: RunStreamValue[] = []
   const run = streamRun(prompt, config)
 
   let step = await run.next()
   while (!step.done) {
-    events.push(step.value)
+    values.push(step.value)
     step = await run.next()
   }
+  expect(step.value).toBeUndefined()
 
-  const summary = step.value
+  const summary = summaryOf(values.at(-1))
+  const events = values.filter((value): value is HarnessEvent => value.type !== 'run_summary')
   writtenTracePaths.push(tracePathFor(summary))
   return { events, summary }
+}
+
+/** The last value of a stream must be the summary, or the stream is incomplete. */
+function summaryOf(value: RunStreamValue | undefined): RunSummary {
+  if (value === undefined || value.type !== 'run_summary') {
+    throw new Error('the stream ended without a run_summary value')
+  }
+  return value.summary
 }
 
 /**
@@ -94,14 +103,14 @@ describe('the bridge running a recorded loop', () => {
     const before = traceFileNames()
     const run = streamRun('Stream this run.', config)
 
-    // One event pulled, and the run is visibly unfinished: no summary yet, and the
+    // One value pulled, and the run is visibly unfinished: no summary yet, and the
     // closing event has not been seen.
     const first = await run.next()
     if (first.done) {
       throw new Error('the run finished before yielding anything')
     }
-    const events: HarnessEvent[] = [first.value]
-    expect(events[0]?.type).toBe('model_call_started')
+    const values: RunStreamValue[] = [first.value]
+    expect(values[0]?.type).toBe('model_call_started')
 
     // The trace is already ahead of the consumer. The loop records an event before it
     // yields it (src/harness/loop.ts:107), so the header and this one event are on disk
@@ -116,19 +125,21 @@ describe('the bridge running a recorded loop', () => {
 
     let step = await run.next()
     while (!step.done) {
-      events.push(step.value)
+      values.push(step.value)
       step = await run.next()
     }
+    expect(step.value).toBeUndefined()
 
-    const summary = step.value
+    const summary = summaryOf(values.at(-1))
     expect(tracePathFor(summary)).toBe(openedPath)
 
-    // The order the page would render is the order the loop produced, and the summary is
-    // not one more event tacked onto the end.
-    expect(events.map((event) => event.type)).toEqual([
+    // The order a page would render is the order the loop produced, and the summary is one
+    // more value on the same stream rather than something hidden in the generator's return.
+    expect(values.map((value) => value.type)).toEqual([
       'model_call_started',
       'model_call_finished',
       'run_finished',
+      'run_summary',
     ])
     expect(summary.iterations).toBe(1)
   })

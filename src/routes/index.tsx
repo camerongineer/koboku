@@ -1,7 +1,12 @@
 import { useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 
-import { getCannedReply, startRun, type Reply } from '../agent.functions'
+import {
+  getCannedReply,
+  startRun,
+  type Reply,
+  type RunSummary,
+} from '../agent.functions'
 import type { HarnessEvent } from '../harness/types'
 
 export const Route = createFileRoute('/')({ component: Home })
@@ -32,6 +37,7 @@ function Home() {
 
   const [prompt, setPrompt] = useState('Say hello, then say what you just did.')
   const [events, setEvents] = useState<HarnessEvent[]>([])
+  const [summary, setSummary] = useState<RunSummary | null>(null)
   const [running, setRunning] = useState(false)
 
   async function ask() {
@@ -43,13 +49,19 @@ function Home() {
   async function run() {
     setRunning(true)
     setEvents([])
+    setSummary(null)
 
     // `startRun` hands back an async iterable, measured 2026-11-08: it has
     // Symbol.asyncIterator but no `next()`, so `for await` is the only way to read it —
     // the same way AGENTS.md §3 rule 3 says a harness generator is consumed. Each
-    // iteration of this loop is one event arriving over the wire.
-    for await (const event of await startRun({ data: { prompt } })) {
-      setEvents((current) => [...current, event])
+    // iteration of this loop is one value arriving over the wire, and the last one is the
+    // summary, which is why it is tagged rather than another kind of harness event.
+    for await (const value of await startRun({ data: { prompt } })) {
+      if (value.type === 'run_summary') {
+        setSummary(value.summary)
+      } else {
+        setEvents((current) => [...current, value])
+      }
     }
 
     setRunning(false)
@@ -84,6 +96,17 @@ function Home() {
             <li key={`${event.type}-${index}`}>{describe(event)}</li>
           ))}
         </ul>
+
+        {summary ? (
+          <p className="mt-3 font-mono text-sm text-muted-foreground">
+            run {summary.runId} · {summary.finishReason} · {summary.iterations} iteration(s) · tokens{' '}
+            {summary.totalUsage.inputTokens}/{summary.totalUsage.outputTokens}
+          </p>
+        ) : null}
+
+        {summary?.finalContent ? (
+          <p className="mt-2 font-mono text-sm">{summary.finalContent}</p>
+        ) : null}
       </section>
 
       <section className="mt-8">
