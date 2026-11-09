@@ -99,6 +99,16 @@ describe('tool registry', () => {
     expect(registry.definitions()[0]?.description).toBe('Read a file inside the workspace.')
   })
 
+  it('stores a strict arguments schema, so an invented parameter is refused not dropped', () => {
+    const registry = createRegistry([declaredTool()])
+
+    // `maxBytes` is not a parameter this tool declares. It arrives as a valid JSON object with a
+    // key nobody invented in the harness, which is exactly what a quantised model sends.
+    const parsed = registry.lookup('read_file')?.arguments?.safeParse({ path: 'notes.md', maxBytes: 12 })
+    expect(parsed?.success).toBe(false)
+    expect(registry.definitions()[0]?.parameters.additionalProperties).toBe(false)
+  })
+
   it('refuses a bad declaration at construction, and names the tool it refused', () => {
     const refusals: Array<{ why: string; tool: Partial<Tool> }> = [
       { why: 'a name that is not there', tool: { name: '' } },

@@ -45,7 +45,9 @@ export interface Tool {
   description: string
   /**
    * An object schema, which doubles as the `parameters` payload the model sees
-   * (AGENTS.md §3.6). An object is required because function calling asks for named arguments.
+   * (AGENTS.md §3.6). An object is required because function calling asks for named arguments,
+   * and the registry stores a strict version of it: a parameter nobody declared is refused
+   * rather than dropped. See `createRegistry` for why that was measured rather than assumed.
    */
   arguments: z.ZodType
   budgets: ToolBudgets
@@ -109,12 +111,22 @@ export function createRegistry(tools: readonly Tool[]): ToolRegistry {
     if (byName.has(tool.name)) {
       throw new Error(`registry: tool name "${tool.name}" is declared twice`)
     }
+    // Unknown parameters are refused, not dropped. Measured 2026-11-08 with node v24.12.0 and
+    // the installed zod: parsing `{ path, extra }` against a plain `z.object({ path })` succeeds
+    // and silently drops `extra`, while `z.toJSONSchema` on that same schema publishes
+    // `additionalProperties: false`. The wire already tells a model that extra keys are not
+    // accepted, and a quantised model invents parameter names (PLAN.md §6, M3), so the stored
+    // schema is the strict version: the promise and the parse agree.
+    const argumentsSchema = tool.arguments.strict()
+
     // The validated values are what the registry keeps, so a tool is described to the model
-    // exactly as the registry checked it: a trimmed description, budgets as parsed.
+    // exactly as the registry checked it: a trimmed description, budgets as parsed, strict
+    // arguments.
     byName.set(parsed.data.name, {
       ...tool,
       name: parsed.data.name,
       description: parsed.data.description,
+      arguments: argumentsSchema,
       budgets: parsed.data.budgets,
     })
   }
