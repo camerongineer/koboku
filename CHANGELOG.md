@@ -69,6 +69,29 @@ inspector page. Tools are recorded under this heading as they are implemented, n
   anything runs: `{ data: { nope: 1 } }` gives "Object literal may only specify known properties, and
   'nope' does not exist in type '{ prompt: string; }'", and `{ data: 'a prompt' }` gives "Type
   'string' is not assignable to type '{ prompt: string; }'".
+- `streamRun` takes its provider and its configuration from the caller instead of building a
+  scripted provider and reading the environment itself. `startRun` now hands it `strataProvider(config)`
+  with `loadConfig()` called once, which is the first place in the project a run reaches the model
+  server. The scripted provider is what the tests hand in, as AGENTS.md §3 rule 4 requires.
+- Measured 2026-11-08 in the running dev server, one real run through the page: 125 ms after the click
+  the page held only `iteration 1: asking the model`, its button read `running`, and `run closed` was
+  not on screen — the model was still answering. It then rendered `iteration 1: stop stop, 0 tool calls,
+  tokens 62/107`, `run closed: model_stop after 1 iteration(s), total tokens 62/107` and the run id
+  `run-mw8kd2l3-ozxqurop`, with no console error. The id names the file:
+  `traces/run-mw8kd2l3-ozxqurop.jsonl`, 376 bytes written at 17:09:39, holding `run_header` and the same
+  three records with the same 62/107 counts — provider-reported, since the harness adds no numbers of
+  its own.
+- Measured 2026-11-08: `GET http://127.0.0.1:8080/v1/models` with no credentials returns `401
+  Unauthorized`, which is how the model server was confirmed to be listening without sending it a key.
+- Measured 2026-11-08 after that call was wired in: `GET /src/agent.functions.ts` still returns 45 code
+  lines with the same two framework imports, and the strings `provider/strata.ts`, `config.ts`,
+  `provider/fake.ts` and `process.env` do not appear in the served file at all — a handler body that
+  reads the environment stays on the server.
+- Measured 2026-11-08: `npm run test` → 7 files, 35 tests in 362 ms; `npm run typecheck` → exit 0;
+  `npm run lint` → exit 0. Two assertions moved with the provider: a refused whitespace-only prompt is
+  now also proven never to have asked the provider anything (`provider.calls` is empty), and the
+  trimming proof reads `provider.calls[0].messages[0].content` rather than the reply text, because the
+  reply is no longer built from the prompt here.
 - `src/agent.run.ts` ends its stream with the closing summary as a value of its own, tagged
   `run_summary`, rather than as the generator's return value; `startRun` delegates to it and the page
   now shows the run id, the finish reason, the iteration count, the total tokens and the final

@@ -1,7 +1,7 @@
-import { loadConfig, type HarnessConfig } from './harness/config'
+import type { HarnessConfig } from './harness/config'
 import { runAgent } from './harness/loop'
-import { cannedTurn, fakeProvider } from './harness/provider/fake'
 import { openTrace } from './harness/trace'
+import type { Provider } from './harness/provider/provider'
 import type { HarnessEvent, Message, RunFinishReason, TokenUsage } from './harness/types'
 
 /**
@@ -53,9 +53,10 @@ export interface RunSummaryValue {
 export type RunStreamValue = HarnessEvent | RunSummaryValue
 
 /**
- * One recorded run, streamed. `config` defaults to the real environment because the
- * harness owns the standing values; passing one in is what lets a test run without the
- * key in `process.env`, the same shape `loadConfig` itself uses for the environment.
+ * One recorded run, streamed. The provider and the configuration come from the caller: this
+ * function does not choose a model or read the environment, which is what lets
+ * `test/bridge-run.test.ts` run against a scripted provider with an inert config while
+ * `src/agent.functions.ts` runs against the real server with the standing one.
  *
  * It is an async generator for the same reason `runAgent` is (AGENTS.md §3, rule 3): the
  * caller sees each iteration the moment it happens. The harness event union is not widened
@@ -68,7 +69,8 @@ export type RunStreamValue = HarnessEvent | RunSummaryValue
  */
 export async function* streamRun(
   prompt: string,
-  config: HarnessConfig = loadConfig(),
+  provider: Provider,
+  config: HarnessConfig,
 ): AsyncGenerator<RunStreamValue, void, void> {
   const request = prompt.trim()
   if (request === '') {
@@ -77,10 +79,6 @@ export async function* streamRun(
 
   const runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   const trace = openTrace({ runId, model: config.model })
-
-  // The scripted provider is deliberate at this step: the loop, the trace and the
-  // summary are proved end to end before the first real model call (PLAN.md §6, M2).
-  const provider = fakeProvider([cannedTurn(`scripted reply to: ${request}`)])
 
   const messages: Message[] = [{ role: 'user', content: request }]
   let finish: RunSummary | undefined

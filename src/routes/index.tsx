@@ -74,8 +74,9 @@ function Home() {
       <section className="mt-6">
         <h2 className="text-lg font-medium">start a run</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          The page calls one streaming server function and reads it one event at a time. The
-          provider is still the scripted one, so this proves the wire rather than the model.
+          The page calls one streaming server function and reads it one value at a time. On the
+          server that run goes through the real adapter to the local model server, so the numbers
+          here are the provider&apos;s own.
         </p>
         <textarea
           className="mt-3 w-full rounded-md border p-2 font-mono text-sm"

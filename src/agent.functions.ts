@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { streamRun, type RunStreamValue } from './agent.run'
 import { loadConfig } from './harness/config'
 import { cannedTurn, fakeProvider } from './harness/provider/fake'
+import { strataProvider } from './harness/provider/strata'
 
 /**
  * The bridge. This is the only kind of file allowed to know about both worlds: it may
@@ -87,5 +88,9 @@ export const getCannedReply = createServerFn({ method: 'GET' }).handler(async ()
 export const startRun = createServerFn({ method: 'POST' })
   .validator(z.object({ prompt: z.string() }))
   .handler(async function* ({ data }): AsyncGenerator<RunStreamValue, void, void> {
-    yield* streamRun(data.prompt)
+    // The real adapter, with the standing configuration: this is the first place a run
+    // reaches the model server. `loadConfig` is called once here so the provider and the
+    // loop are given the same values.
+    const config = loadConfig()
+    yield* streamRun(data.prompt, strataProvider(config), config)
   })

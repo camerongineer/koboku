@@ -5,15 +5,17 @@ import { join } from 'node:path'
 
 import { streamRun, type RunStreamValue, type RunSummary } from '../src/agent.run'
 import type { HarnessConfig } from '../src/harness/config'
+import { cannedTurn, fakeProvider, type FakeProvider } from '../src/harness/provider/fake'
+import type { Provider } from '../src/harness/provider/provider'
 import type { HarnessEvent } from '../src/harness/types'
 
 /**
- * M2, step five: the run is streamed, and the closing summary travels as the stream's last
- * value. These tests drive the generator with `next()` — which the wire cannot, having no
- * `next` of its own — so they can assert the order values arrive in and not only what
- * arrives at the end. The composition is imported from `src/agent.run.ts`, which has no
- * framework in it, so these tests need neither the framework nor a browser. No model
- * server, no network, no clock-dependent assertion.
+ * M2, step six: a run is given its provider. These tests hand in the scripted one, which is
+ * what AGENTS.md §3 rule 4 means in practice — the composition is identical except for who
+ * answers, and no test here can reach the model server even by accident. The streamed shape
+ * is driven with `next()`, which the wire cannot do (it has no `next` of its own), so the
+ * order values arrive in is assertable. No model server, no network, no clock-dependent
+ * assertion.
  */
 
 // A stand-in for the standing config. The key value is inert: the scripted provider is
@@ -42,9 +44,12 @@ function tracePathFor(summary: RunSummary): string {
  * Pulls every value off the stream. The summary is read from the yielded values, not from the
  * generator's return, because that is the only shape the wire can carry.
  */
-async function drainRun(prompt: string): Promise<{ events: HarnessEvent[]; summary: RunSummary }> {
+async function drainRun(
+  prompt: string,
+  provider: Provider,
+): Promise<{ events: HarnessEvent[]; summary: RunSummary }> {
   const values: RunStreamValue[] = []
-  const run = streamRun(prompt, config)
+  const run = streamRun(prompt, provider, config)
 
   let step = await run.next()
   while (!step.done) {
@@ -71,9 +76,14 @@ function summaryOf(value: RunStreamValue | undefined): RunSummary {
  * Every completed run leaves a trace behind, so every test that completes one registers
  * that file for cleanup. A git-ignored folder is not a licence to leave litter in it.
  */
-async function runAndTrack(prompt: string): Promise<RunSummary> {
-  const { summary } = await drainRun(prompt)
+async function runAndTrack(prompt: string, provider: Provider): Promise<RunSummary> {
+  const { summary } = await drainRun(prompt, provider)
   return summary
+}
+
+/** The scripted answer this suite runs against, kept so a test can also read `provider.calls`. */
+function scripted(content: string): FakeProvider {
+  return fakeProvider([cannedTurn(content)])
 }
 
 /** Which trace files exist right now, so a test can see exactly which one a run opened. */
@@ -91,17 +101,19 @@ function records(path: string): Record<string, unknown>[] {
 describe('the bridge running a recorded loop', () => {
   it('refuses a prompt that is only whitespace, before anything is opened', async () => {
     const before = traceFileNames()
-    const run = streamRun('   ', config)
+    const provider = scripted('never asked')
+    const run = streamRun('   ', provider, config)
 
     // The body of an async generator runs on the first `next()`, so the refusal lands
     // there rather than at the call. Either way it lands before a file exists.
     await expect(run.next()).rejects.toThrow('a run needs a prompt')
     expect(traceFileNames()).toEqual(before)
+    expect(provider.calls).toHaveLength(0)
   })
 
   it('hands over each event while the run is still going', async () => {
     const before = traceFileNames()
-    const run = streamRun('Stream this run.', config)
+    const run = streamRun('Stream this run.', scripted('streamed'), config)
 
     // One value pulled, and the run is visibly unfinished: no summary yet, and the
     // closing event has not been seen.
@@ -145,19 +157,22 @@ describe('the bridge running a recorded loop', () => {
   })
 
   it('runs the loop to its end and reports what happened', async () => {
-    const summary = await runAndTrack('  Read notes.txt.  ')
+    const provider = scripted('the scripted reply')
+    const summary = await runAndTrack('  Read notes.txt.  ', provider)
 
     expect(summary.finishReason).toBe('model_stop')
     expect(summary.iterations).toBe(1)
     // Provider-reported numbers only: the scripted turn reports zero, and the bridge
     // invents nothing.
     expect(summary.totalUsage).toEqual({ inputTokens: 0, outputTokens: 0 })
-    // Trimmed on the way in, so the page sees the reply to what was actually asked.
-    expect(summary.finalContent).toBe('scripted reply to: Read notes.txt.')
+    expect(summary.finalContent).toBe('the scripted reply')
+    // Trimmed on the way in: this is what the provider was actually asked, which is the
+    // only proof of trimming that survives the provider no longer being built here.
+    expect(provider.calls[0]?.messages[0]?.content).toBe('Read notes.txt.')
   })
 
   it('writes a trace for the run into the standing directory', async () => {
-    const summary = await runAndTrack('Trace this run.')
+    const summary = await runAndTrack('Trace this run.', scripted('traced'))
     const path = tracePathFor(summary)
 
     expect(existsSync(path)).toBe(true)
@@ -180,13 +195,13 @@ describe('the bridge running a recorded loop', () => {
   })
 
   it('names the run so the trace guard accepts it', async () => {
-    const summary = await runAndTrack('Name this run.')
+    const summary = await runAndTrack('Name this run.', scripted('named'))
 
     expect(summary.runId).toMatch(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/)
   })
 
   it('returns plain data with no server path in it', async () => {
-    const summary = await runAndTrack('What crosses the boundary?')
+    const summary = await runAndTrack('What crosses the boundary?', scripted('plain'))
 
     expect(Object.keys(summary).sort()).toEqual([
       'finalContent',
