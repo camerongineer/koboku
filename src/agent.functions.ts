@@ -29,8 +29,8 @@ export interface Reply {
 
 /**
  * Re-exported so a page can name what a stream carries without importing the composition module,
- * which is the file that touches the filesystem. Both are type-only: erased at compile time, and
- * measured 2026-11-08 to add nothing to what the browser is served.
+ * which is the file that touches the filesystem. Type-only: erased at compile time, and measured
+ * 2026-11-08 to add nothing to what the browser is served.
  */
 export type { RunSummary } from './agent.run'
 
