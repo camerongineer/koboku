@@ -43,40 +43,57 @@ inspector page. Tools are recorded under this heading as they are implemented, n
   identical event list. `npm run test` → 6 files, 29 tests passed in 319 ms with no model server and no
   network; `npm run typecheck` → exit 0; `npm run lint` → exit 0.
 - `src/agent.run.ts` is the caller half of a run, and it has no framework in it: it opens a trace,
-  drives `runAgent` to its closing event and returns a plain `RunSummary` — run id, finish reason,
-  iterations, summed provider-reported usage and the last assistant text. The trace path is
-  deliberately not returned: a browser must not learn where the server keeps its files. The
-  provider is still the scripted one, so this step proves the composition rather than the model.
-- `src/agent.functions.ts` gained a second server function, `startRun`, wrapping that composition,
-  and the bridge now exports server functions and types and nothing else. That boundary is a
-  measurement, not a preference: the body of a server function stays on the server, but a plain
-  function **exported** from a bridge file is served to the browser together with everything it
-  imports. With `runRecorded` exported from the bridge the browser was served
-  `src/harness/trace.ts` and the page failed with `Module "node:fs" has been externalized for
-  browser compatibility. Cannot access "node:fs.appendFileSync" in client code`. After the split,
-  the same request for the same file returns 35 lines: two framework imports and two call stubs,
-  no harness import and no `node:fs`.
+  drives `runAgent` and hands each `HarnessEvent` to the caller as the loop produces it, and its
+  return value is a plain `RunSummary` — run id, finish reason, iterations, summed
+  provider-reported usage and the last assistant text. The trace path is deliberately not
+  returned: a browser must not learn where the server keeps its files. The provider is still the
+  scripted one, so this step proves the composition rather than the model.
+- `src/agent.functions.ts` has a second server function, `startRun`, whose handler is an async
+  generator (`return yield* streamRun(data.prompt)`), so a page consumes it with `for await` and
+  sees each iteration while the run is still going. It is the only request in the project with a
+  validator: `z.object({ prompt: z.string() })`. The bridge exports server functions and types and
+  nothing else. That boundary is a measurement, not a preference: the body of a server function
+  stays on the server, but a plain function **exported** from a bridge file is served to the browser
+  together with everything it imports. With `runRecorded` exported from the bridge the browser was
+  served `src/harness/trace.ts` and the page failed with `Module "node:fs" has been externalized for
+  browser compatibility. Cannot access "node:fs.appendFileSync" in client code`. After the split, the
+  same request for the same file returned 35 lines: two framework imports and two call stubs, no
+  harness import and no `node:fs`. Measured 2026-11-08 with the generator handler in place, the same
+  request now returns 29 code lines, still two framework imports, no `agent.run`, no `openTrace` and
+  no `node:fs`: a handler body stays server-side even when it is a generator and even when the
+  validator is a zod schema.
+- Measured 2026-11-08 on the call site, with a throwaway probe file that was then deleted: the page
+  side of `startRun({ data: { prompt: 'a prompt' } })` typechecks, and its type is
+  `Promise<AsyncGenerator<HarnessEvent, RunSummary, void>>` — events and the closing summary, which
+  `for await` discards and a hand-driven `next()` loop keeps. A wrong shape is refused before
+  anything runs: `{ data: { nope: 1 } }` gives "Object literal may only specify known properties, and
+  'nope' does not exist in type '{ prompt: string; }'", and `{ data: 'a prompt' }` gives "Type
+  'string' is not assignable to type '{ prompt: string; }'".
 - Measured 2026-11-08 in the running dev server (`npm run dev`, port 3000, Chromium): the page
   calls `getCannedReply`, renders `the canned reply` with `model qwen3.8-flash-next-iq3_xxs`, and
   the console holds no error. `loadConfig` reads `process.env` and `npm run dev` passes no env
   file, and `loadConfig` refuses to return without the API key — so a rendered page is also the
   proof that the standing configuration, key included, reaches the server runtime as the dev
   script stands. No test reads that key.
-- Measured 2026-11-08: `test/bridge-run.test.ts`, 5 tests — a whitespace-only prompt refused before
-  anything is opened; one spoken iteration reported as `model_stop` after 1 iteration with the scripted
-  zero counts; a trace written into `traces/` by the loop itself, header first and `run_finished` last,
-  four records for one spoken iteration; the generated run id accepted by the trace guard; and a
-  response with no path in it. `npm run test` → 7 files, 34 tests passed in 350 ms with no model server,
-  no network and no browser — no test imports the framework any more; `npm run typecheck` → exit 0;
-  `npm run lint` → exit 0. The suite deletes every trace file it writes — measured: 0 files left in
-  `traces/` afterwards.
-- Gaps recorded at this step: the writer records no timestamps or durations, so M5's "durations" clause
-  is still unmet; one open-write-close per event is a cost that has been accepted here and measured
-  nowhere, which is an M6 measurement; `startRun` still cannot be called from a page — with no validator
-  its request type is `undefined`, and `startRun({ data: 'a prompt' })` is rejected by `tsc` with
-  "Type 'string' is not assignable to type 'undefined'", measured 2026-11-08 — so no request of it has
-  ever crossed the boundary; and a run id is built from the clock and randomness, with nothing checking
-  that two runs cannot collide.
+- Measured 2026-11-08: `test/bridge-run.test.ts`, 6 tests — a whitespace-only prompt refused, and
+  proven to refuse on the first `next()` because an async generator body does not run at the call,
+  with the directory listed before and after showing no new file; events handed over one at a time
+  with the trace already two records ahead while the caller holds only the first, in the order
+  `model_call_started`, `model_call_finished`, `run_finished`, and the summary arriving as the
+  `done` result rather than as a fourth event, at the same path the mid-run file had; one spoken
+  iteration reported as `model_stop` after 1 iteration with the scripted zero counts; a trace written
+  into `traces/` by the loop itself, header first and `run_finished` last, four records for one
+  spoken iteration; the generated run id accepted by the trace guard; and a summary with no path in
+  it. `npm run test` → 7 files, 35 tests passed in 444 ms with no model server, no network and no
+  browser; `npm run typecheck` → exit 0; `npm run lint` → exit 0. The suite deletes every trace file
+  it writes — measured: 0 files left in `traces/` afterwards.
+- Gaps recorded at this step: the writer records no timestamps or durations, so M5's "durations"
+  clause is still unmet; one open-write-close per event is a cost that has been accepted here and
+  measured nowhere, which is an M6 measurement; nothing in `src/routes/` calls `startRun` yet, so
+  the streaming wire has been proved by the compiler and by a unit test over the generator, not
+  across an HTTP request — whether the generator's return value survives the wire is unmeasured, as
+  is what a rejected request looks like to the page; and a run id is built from the clock and
+  randomness, with nothing checking that two runs cannot collide.
 
 ### Toolchain
 

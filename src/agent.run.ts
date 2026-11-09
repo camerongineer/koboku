@@ -2,7 +2,7 @@ import { loadConfig, type HarnessConfig } from './harness/config'
 import { runAgent } from './harness/loop'
 import { cannedTurn, fakeProvider } from './harness/provider/fake'
 import { openTrace } from './harness/trace'
-import type { Message, RunFinishReason, TokenUsage } from './harness/types'
+import type { HarnessEvent, Message, RunFinishReason, TokenUsage } from './harness/types'
 
 /**
  * The caller half of a run, with no framework in it: open the trace, drive the loop to
@@ -37,14 +37,24 @@ export interface RunSummary {
 }
 
 /**
- * `config` defaults to the real environment because the harness owns the standing
- * values; passing one in is what lets a test run without the key in `process.env`,
- * the same shape `loadConfig` itself uses for the environment.
+ * One recorded run, streamed. `config` defaults to the real environment because the
+ * harness owns the standing values; passing one in is what lets a test run without the
+ * key in `process.env`, the same shape `loadConfig` itself uses for the environment.
+ *
+ * It is an async generator for the same reason `runAgent` is (AGENTS.md §3, rule 3): the
+ * caller sees each iteration the moment it happens instead of a summary at the end. The
+ * summary is the generator's *return* value, which `for await` discards, so a caller that
+ * wants it drives the generator by hand with `next()` — as `test/bridge-run.test.ts` and
+ * the bridge's own handler do.
+ *
+ * One consequence of that shape is worth knowing: the body of an async generator does not
+ * run until the first `next()`. Asking for a bad prompt is not rejected when this function
+ * is called, it is rejected when the first event is asked for. Nothing is opened either way.
  */
-export async function runRecorded(
+export async function* streamRun(
   prompt: string,
   config: HarnessConfig = loadConfig(),
-): Promise<RunSummary> {
+): AsyncGenerator<HarnessEvent, RunSummary, void> {
   const request = prompt.trim()
   if (request === '') {
     throw new Error('bridge: a run needs a prompt')
@@ -68,7 +78,11 @@ export async function runRecorded(
     maxOutputTokens: config.maxOutputTokens,
     trace,
   })) {
-    // Only the closing event is kept: everything else is already in the trace.
+    // Each event is handed to the caller as the loop yields it, and the trace already
+    // holds it too: the composition forwards events, it never records them itself.
+    yield event
+
+    // Only the closing event is kept for the summary.
     if (event.type === 'run_finished') {
       finish = {
         runId,

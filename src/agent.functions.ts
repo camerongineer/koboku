@@ -1,8 +1,10 @@
 import { createServerFn } from '@tanstack/react-start'
+import { z } from 'zod'
 
-import { runRecorded } from './agent.run'
+import { streamRun, type RunSummary } from './agent.run'
 import { loadConfig } from './harness/config'
 import { cannedTurn, fakeProvider } from './harness/provider/fake'
+import type { HarnessEvent } from './harness/types'
 
 /**
  * The bridge. This is the only kind of file allowed to know about both worlds: it may
@@ -60,15 +62,20 @@ export const getCannedReply = createServerFn({ method: 'GET' }).handler(async ()
 })
 
 /**
- * Reached from the page as `startRun({ data: 'a prompt' })`. Measured 2026-11-08, and the
- * measurement is the point: with no validator the request type is `undefined`, so that
- * call is refused by `tsc` with "Type 'string' is not assignable to type 'undefined'". A
- * validator is needed before a page can send a prompt, and the shape of it is the next
- * step. Until then nothing calls this.
+ * One run, streamed. The page calls it as `startRun({ data: { prompt: '…' } })` and gets
+ * back an async generator it can consume with `for await`: each harness event arrives
+ * while the run is still going, and the generator's return value is the closing
+ * `RunSummary`.
+ *
+ * The validator is what makes the call possible at all, and that was measured rather than
+ * assumed. Without one, the request type is `undefined` and `startRun({ data: 'x' })` is
+ * refused by `tsc` with "Type 'string' is not assignable to type 'undefined'". With a zod
+ * object in front of it the call site is typed and checked on the server before any event
+ * is produced. It asks for a string only; an empty or whitespace-only prompt is refused by
+ * the composition, which is where that rule already lives.
  */
-export const startRun = createServerFn({ method: 'POST' }).handler(async ({ data }) => {
-  if (typeof data !== 'string') {
-    throw new Error('bridge: startRun expects the prompt as a string')
-  }
-  return runRecorded(data)
-})
+export const startRun = createServerFn({ method: 'POST' })
+  .validator(z.object({ prompt: z.string() }))
+  .handler(async function* ({ data }): AsyncGenerator<HarnessEvent, RunSummary, void> {
+    return yield* streamRun(data.prompt)
+  })
