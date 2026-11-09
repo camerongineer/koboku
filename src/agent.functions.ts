@@ -3,8 +3,11 @@ import { z } from 'zod'
 
 import { streamRun, type RunStreamValue } from './agent.run'
 import { loadConfig } from './harness/config'
+import { openJail } from './harness/jail'
 import { cannedTurn, fakeProvider } from './harness/provider/fake'
 import { strataProvider } from './harness/provider/strata'
+import { readFileTool } from './harness/tools/read-file'
+import { createRegistry } from './harness/tools/registry'
 
 /**
  * The bridge. This is the only kind of file allowed to know about both worlds: it may
@@ -16,7 +19,8 @@ import { strataProvider } from './harness/provider/strata'
  * constraint, not a preference: the body of a server function stays on the server, but a
  * plain function exported from this file is handed to the browser along with everything
  * it imports. The composition that opens a trace lives in `agent.run.ts` for that reason
- * (see its header comment for the measurement).
+ * (see its header comment for the measurement). The same rule is why the jail and the
+ * filesystem tool below are used inside a handler body and never exported.
  */
 
 export interface Reply {
@@ -92,5 +96,12 @@ export const startRun = createServerFn({ method: 'POST' })
     // reaches the model server. `loadConfig` is called once here so the provider and the
     // loop are given the same values.
     const config = loadConfig()
-    yield* streamRun(data.prompt, strataProvider(config), config)
+
+    // The jail is opened here, at the one place that owns the directory, and the tool is built on
+    // top of it: a reader that was handed no jail cannot be constructed. A root that cannot be
+    // opened raises before the run starts, which is a configuration mistake saying so.
+    const jail = openJail(config.workspaceDir)
+    const registry = createRegistry([readFileTool({ jail })])
+
+    yield* streamRun(data.prompt, strataProvider(config), config, registry)
   })
