@@ -41,6 +41,159 @@ been released.
   19 tests passed in 597 ms with no model server and no network; `npm run typecheck` → exit 0;
   `npm run lint` → exit 0.
 
+## 0.0.4 — 2026-11-08 — M3
+
+A run can now be given tools. The harness keeps the list of tools it has, validates and bounds every
+call the model asks for, and confines filesystem work to one directory it resolves before anything is
+opened. `read_file` is the first tool a real run could use, and a real run used it unprompted.
+
+### Added
+
+- `src/harness/tools/registry.ts` — the tool contract, and the only place that knows which tools this
+  harness has. Budgets belong to a tool's declaration rather than to each call, so a caller cannot ask a
+  tool for more than its own record permits; `deadlineMs` is required, the other three budgets are
+  optional. Construction refuses a duplicate name, a name outside a closed set of at most 64 characters,
+  and an arguments schema that is not an object schema. It stores the strict version of every arguments
+  schema, measured 2026-11-08 with node v24.12.0 against the installed zod 4.6.7: parsing an invented key
+  against a plain object schema succeeds and silently drops it, while the JSON schema published from that
+  same schema tells the model extra properties are not accepted. A tool carries its own `execute`.
+- `src/harness/jail.ts` — resolve first, then contain. The root is canonicalised at open, so a workspace
+  reached through a link and one reached directly are the same jail, and a root that cannot be opened
+  raises there instead of producing a jail that quietly refuses everything. A candidate path is
+  canonicalised through the nearest ancestor that exists, which makes *where a path would land* answerable
+  before anything is opened; containment is then checked against the canonical root, case-insensitively on
+  Windows because the filesystem there is. An empty candidate and a path containing a NUL byte are refused,
+  and a refusal names the workspace it was refused against.
+- `src/harness/tools/read-file.ts` — `read_file`, built on a jail and impossible to construct without one.
+  It asks the filesystem for at most the byte budget rather than reading a file whole and slicing it; it
+  reserves the bytes of its own truncation notice out of that budget before keeping any file content; it
+  cuts at a UTF-8 character boundary rather than at a byte; it closes the descriptor in `finally`; and it
+  reports truncation only when the file really is larger. Measured 2026-11-08: with the notice left
+  unreserved, a 101-byte budget produced a 296-byte result.
+- `src/harness/dispatch.ts` — one path from a model asking for a call to the model reading an answer, with
+  five failure modes and each one ending as a result the model can read: an unknown name, an `arguments`
+  string that is not parseable JSON, a well-formed object naming parameters the tool does not accept, a
+  call that outlives its deadline, a tool that raises. Parse failure and invalid arguments are kept apart
+  because a model needs different corrections for them, and the refusal for an invented parameter names the
+  accepted parameters read back out of the same JSON schema the model was shown. The deadline is armed from
+  the tool's own `deadlineMs` and the report quotes that same number; the report also says the tool *may
+  still be running*, because the harness stopped waiting rather than stopped the tool. Every result,
+  refusal included, carries the model's own `tool_call_id`. The byte cap is applied last, with the sentence
+  that reports the cap put on top of the capped text.
+- `src/harness/loop.ts` — a run is given a registry, and the tool list sent to the provider is
+  `registry.definitions()` in declaration order rather than a hardcoded empty list. The interim
+  unknown-name branch left the loop and became dispatch's, its wording kept verbatim so the M1 golden
+  transcripts still pass unchanged.
+- `src/harness/config.ts`, `.env`, `.env.example` — `KOBOKU_WORKSPACE_DIR`, default `workspace`, validated
+  with the rest of the environment. The value is left as written: `openJail` canonicalises whatever root it
+  is handed, and a second place that knows about paths is a second place that can disagree.
+- `workspace/` — the directory the jail resolves over, tracked only through an empty `.gitkeep`. Everything
+  written inside it is gitignored: `git check-ignore -v workspace/notes.txt` reported `.gitignore:22` and
+  exited 0, measured 2026-11-08.
+- App wiring — `streamRun` takes an optional registry and forwards it to the loop, building none of its own;
+  the `startRun` handler opens the jail over `config.workspaceDir` and hands the loop a registry holding one
+  tool. The jail and the reader are used inside the handler body and never exported, which is the boundary
+  rule the bridge file already records.
+- `PLAN.md` — the M3 row now names `jail.ts`, and the M4 row carries `write_file` alone.
+
+### Fixed
+
+- `src/harness/tools/registry.ts` carried a comment saying dispatch did not exist yet and that nothing
+  called `execute`. Both had been untrue since the loop started dispatching. The comment now says what
+  dispatch actually hands a tool: a deadline armed from the tool's own `deadlineMs` and the budgets copied
+  from its own declaration. Its own commit, no behaviour change.
+
+### Tests
+
+- `test/tool-registry.test.ts`, 10 tests — lookup by exact name carrying its own budgets; an invented name
+  answered with `undefined` rather than a throw; budgets per tool rather than a shared default; descriptors
+  produced in declaration order; descriptors built once so a schema that cannot be serialised fails at
+  startup; an empty registry accepted; the validated description kept rather than the raw one; a strict
+  arguments schema stored so an invented parameter is refused not dropped; a bad declaration refused with
+  the tool it refused named; the same name declared twice refused.
+- `test/jail.test.ts`, 10 tests — a relative path resolved to a canonical absolute path inside the
+  workspace; `..` refused; an absolute path outside refused; an absolute path already inside accepted; a
+  link pointing out refused; a path that does not exist yet resolved when it would land inside; the root
+  itself treated as inside; a candidate that is not a path refused; a root that cannot be opened refused
+  rather than quietly refusing everything; a differently cased path refused as a way round.
+- `test/read-file-tool.test.ts`, 7 tests — a real file read end to end from the `arguments` string a
+  provider sends. It is the only test file that reads a file through the tool itself, and every file it
+  touches lives in a temp directory it creates and removes. A path outside the workspace refused with the
+  boundary named; a link out refused; a missing file and a directory both reported; at most the byte
+  budget read, with the cut named in the text the model sees; a multi-byte character not cut in half; and
+  the tool accepted by the registry with the schema a model is shown. Measured on Windows, opening a
+  directory fails before the read, so a directory reports "could not be opened" and the test asserts that
+  wording.
+- `test/tool-dispatch.test.ts`, 10 tests — a call run with the arguments already parsed and validated; the
+  tool handed its own budgets; an undeclared name refused while naming the tools that do exist; an empty
+  registry saying plainly that nothing is wired up; "I could not read it" kept separate from "that is not
+  what it takes"; an invented parameter refused rather than run with it quietly dropped; a tool that raises
+  turned into a result; a call that outlives its own deadline proved with no clock involved; output capped at
+  the declared byte budget with the cap reported; output left alone when no byte budget is declared.
+- `test/loop-registry-tools.test.ts`, 6 tests — the declared tools with their argument schemas handed to
+  the provider; a call run and its output handed back as a tool message; an invented tool name and an
+  invented parameter refused with the refusal readable to the model on the next call; invented arguments
+  refused on a tool that does exist, before it runs; unparseable arguments reported as their own failure;
+  and the pre-tools behaviour intact — every call answered as unknown — when no registry is given. These are
+  the transcripts PLAN.md §6 names for a quantised model that invents names.
+- `test/config.test.ts`, 4 tests — the workspace default; a named directory passed through unchanged,
+  relative or absolute; an empty directory refused with the key named; and the provider key still required,
+  so a new defaulted key cannot smuggle in a missing credential.
+- `test/bridge-run.test.ts`, 8 tests, two of them new — a declared tool reaching the provider request and
+  its result coming back as a tool result with the final answer after it; and no tools declared at all when
+  the caller hands in no registry.
+- Both new groups were proved non-vacuous by deliberate breakage, then restored before committing: changing
+  the config default to another value failed with `expected 'other-dir' to be 'workspace'`; removing the
+  registry forward failed with `expected [] to deeply equal [ 'read_file' ]`.
+- Gates as this milestone closed, measured 2026-11-08 at 18:54: `npm run test` → 13 files, 84 tests in 710 ms
+  with no model server, no network and no clock-dependent assertion; `npm run typecheck` → exit 0; `npm run
+  lint` → exit 0. `traces/` held 17 files both before and after the suite ran, so it added none and left no
+  new one.
+
+### Exit test, both halves
+
+- **Scripted half.** The invented-name and invented-parameter cases PLAN.md §6 requires are recorded at
+  `test/loop-registry-tools.test.ts:96` and `test/loop-registry-tools.test.ts:134`, and the same failures at
+  the dispatch seam alone at `test/tool-dispatch.test.ts:73` and `test/tool-dispatch.test.ts:110`. All green.
+- **Real-model half, recorded rather than gated.** Measured 2026-11-08 in the running app (`npm run dev`, port
+  3000, Chromium), prompt typed into the page: `What number is kept in notes.txt?` The number 7311 appears
+  only inside `workspace/notes.txt`, which is gitignored and was never committed, so a model that reports it
+  read the file. Two runs are recorded, because the page was driven more than once:
+  - `traces/run-mw8ngyrb-x785vq8c.jsonl`, 1023 bytes written 18:36:40, eight records — `run_header` for model
+    `qwen3.8-flash-next-iq3_xxs`; iteration 1 finished with `stopReason: tool_calls`, one call, usage 358/44;
+    `read_file` asked for `{"path":"notes.txt"}`; the tool result carries the model's own
+    `tool_call_id` `call_741738e9f6d5465a90d01fed`, the file text, and `isError: false`; iteration 2 finished
+    with `stopReason: stop`, 0 calls, usage 454/40; `run_finished` with `model_stop` after 2 iterations and
+    totals 812/84.
+  - `traces/run-mw8nkbbl-7abh2gir.jsonl`, 782 bytes written 18:39:44 — the same eight records, usage 358/59
+    then 454/37, totals 812/96, `model_stop` after 2 iterations.
+- The page rendered the same numbers, read out of the browser at 18:43: `iteration 1: read_file asked for
+  {"path":"notes.txt"}`, `iteration 1: read_file returned …7311…`, `iteration 2: stop stop, 0 tool calls,
+  tokens 454/37`, `run closed: model_stop after 2 iteration(s), total tokens 812/96`, and the final answer
+  `The number kept in notes.txt is **7311**`. No console error. The harness contributed no token numbers of
+  its own.
+- Measured alongside it: `GET http://127.0.0.1:8080/v1/models` without credentials answers `401 Unauthorized`,
+  so a completed and authenticated run is proof the standing configuration — key included — reached the server
+  runtime, `KOBOKU_PROVIDER_API_KEY` being the only config value with no default. And
+  `git check-ignore -v workspace/notes.txt` reported `.gitignore:22` and exited 0: the file the model read
+  never entered the repository.
+
+### Gaps recorded at M3
+
+- The handler that opens the jail is guarded by no test. No test may reach the model server, so the wiring is
+  proven by the two recorded runs and by nothing automated.
+- `maxResults` and `maxDepth` are declared budgets no tool consumes yet.
+- There is no per-call budget override: a model cannot ask for a different byte budget, and cannot raise one.
+- A deadline stops the harness waiting, not the tool. Nothing cancels a tool that keeps running past its
+  `deadlineMs`, and the report says so rather than implying it did.
+- Two runs share one workspace root with nothing deciding what happens when one writes a file another has
+  read. `write_file` makes that live at M4.
+- Opening a jail costs one `realpathSync` per run request. Measured nowhere, which is an M6 number.
+- The wording for a directory differs by system: on Windows the open fails first and the model reads "could
+  not be opened". Asserted for this platform, observed on no other.
+- A trace records no per-tool duration, so a slow call is visible only as part of the iteration it belongs to.
+- The workspace root has no in-app knob: changing it means editing the environment and restarting.
+
 ## 0.0.3 — 2026-11-08 — M2
 
 A run is started from the page, reaches the local model server through the real adapter, streams its
