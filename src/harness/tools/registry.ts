@@ -23,8 +23,9 @@ export interface ToolBudgets {
 }
 
 /**
- * What a tool's own implementation is handed. `dispatch.ts` (PLAN.md §6, M3) is what supplies
- * it, and it does not exist yet: nothing calls `execute` in this harness today.
+ * What a tool's own implementation is handed. `dispatch.ts` builds it: it arms the deadline from this
+ * tool's `deadlineMs` and copies the budgets from this tool's own declaration, so a tool is never
+ * told to spend more than it declared.
  */
 export interface ToolRunContext {
   /** Already wired to this tool's `deadlineMs` by the harness. */
