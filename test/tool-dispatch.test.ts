@@ -86,7 +86,7 @@ describe('tool dispatch', () => {
   it('says plainly that nothing is wired up when the registry is empty', async () => {
     const result = await dispatchToolCall(callOver('read_file', '{"path":"notes.md"}'), createRegistry([]))
 
-    expect(result.output).toContain('no tool is wired up in this harness yet')
+    expect(result.output).toContain('no tool is wired up yet')
   })
 
   it('keeps "I could not read it" separate from "that is not what it takes"', async () => {

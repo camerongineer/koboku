@@ -43,17 +43,15 @@ function armTimer(milliseconds: number): Deadline {
  */
 function unknownToolResult(call: ToolCall, registry: ToolRegistry): ToolResult {
   const available = registry.definitions().map((tool) => tool.name)
-  const availableText =
-    available.length === 0
-      ? 'no tool is wired up in this harness yet'
-      : `tools that do exist: ${available.join(', ')}`
+  // The M1 wording is kept verbatim when nothing is declared, because the M1 golden transcript
+  // quotes it. Only a harness that has tools says which ones they are.
+  const reason =
+    available.length === 0 ? 'no tool is wired up yet' : `tools that do exist: ${available.join(', ')}`
 
   return {
     toolCallId: call.id,
     toolName: call.name,
-    output:
-      `tool "${call.name}" does not exist in this harness (${availableText}), ` +
-      'so the request was not executed.',
+    output: `tool "${call.name}" does not exist in this harness: ${reason}, so the request was not executed.`,
     isError: true,
   }
 }

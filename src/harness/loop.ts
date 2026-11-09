@@ -1,3 +1,5 @@
+import { dispatchToolCall } from './dispatch'
+import { createRegistry, type ToolRegistry } from './tools/registry'
 import type { Provider } from './provider/provider'
 import type { TraceWriter } from './trace'
 import type {
@@ -6,7 +8,6 @@ import type {
   RunFinishReason,
   TokenUsage,
   ToolCall,
-  ToolResult,
 } from './types'
 
 /**
@@ -19,14 +20,22 @@ import type {
  * finish, which is what makes live streaming available later without a second
  * code path (PLAN.md §2).
  *
- * Framework-free by rule: everything this file imports is a type — the Provider seam,
- * the conversation vocabulary and the trace sink interface — so the loop carries no
- * runtime dependency on a model adapter or on the filesystem. It is not a browser
- * module and never a route module.
+ * Framework-free by rule: this file imports no framework and no model adapter. It does call
+ * `dispatchToolCall` — the harness's own tool path, which lives here for the same reason the loop
+ * does — and everything else it imports is a type: the Provider seam, the conversation vocabulary,
+ * the trace sink interface and the tool registry. The loop still carries no runtime dependency on a
+ * model adapter or on the filesystem. It is not a browser module and never a route module.
  */
 
 /** PLAN.md §10 standing default: max iterations per run. */
 export const DEFAULT_MAX_ITERATIONS = 8
+
+/**
+ * The vocabulary a harness has before any tool exists. A run that is given no registry gets this
+ * one: an empty tool list on the request, and every call the model asks for answered as unknown by
+ * dispatch, which is the behaviour the M1 golden transcripts record.
+ */
+const NO_TOOLS = createRegistry([])
 
 export interface RunOptions {
   provider: Provider
@@ -39,6 +48,13 @@ export interface RunOptions {
    * state lives at the bridge, not inside the loop.
    */
   messages: Message[]
+  /**
+   * The tools this run may use: their names are handed to the provider, and any call the model
+   * asks for is dispatched against them. Optional, and optional today because no tool exists yet:
+   * with no registry the loop sends an empty tool list and answers every requested call as unknown,
+   * which is the behaviour the M1 golden transcripts record.
+   */
+  registry?: ToolRegistry
   /**
    * Deliberately required rather than defaulted here. config.ts owns the standing
    * values; a second copy of them in the loop could drift away from the config.
@@ -55,27 +71,6 @@ export interface RunOptions {
    * ends the run rather than letting it continue unrecorded.
    */
   trace?: TraceWriter
-}
-
-/**
- * Interim branch, M1. No tool exists yet, so every name the model asks for is
- * unknown, and an unknown name is answered **in data**: a ToolResult with
- * `isError` true, the model's own `tool_call_id` and tool name, and a sentence
- * saying why nothing ran. The loop then continues, so the model can change
- * strategy — a failure the model can read is not a crash (PLAN.md §2).
- *
- * This is the whole of what `dispatch.ts` takes over at M3: real execution,
- * argument validation and budgets, with the same unknown-name answer. No registry
- * is built here to anticipate it.
- */
-function unknownToolResult(call: ToolCall): ToolResult {
-  return {
-    toolCallId: call.id,
-    toolName: call.name,
-    output: `tool "${call.name}" does not exist in this harness: no tool is wired up yet, `
-      + 'so the request was not executed.',
-    isError: true,
-  }
 }
 
 /** One assistant turn, appended exactly as the model produced it. */
@@ -95,6 +90,7 @@ export async function* runAgent(options: RunOptions): AsyncGenerator<HarnessEven
   }
 
   const messages = options.messages
+  const registry = options.registry ?? NO_TOOLS
   const totalUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 }
   let reason: RunFinishReason | undefined
   let iterations = 0
@@ -117,8 +113,8 @@ export async function* runAgent(options: RunOptions): AsyncGenerator<HarnessEven
     const turn = await options.provider.generate({
       model: options.model,
       messages: [...messages],
-      // M1 sends no tool list: nothing can run one. M3 fills this from the registry.
-      tools: [],
+      // The declared tools, in declaration order. A run with no registry declares none.
+      tools: registry.definitions(),
       temperature: options.temperature,
       maxOutputTokens: options.maxOutputTokens,
     })
@@ -146,7 +142,7 @@ export async function* runAgent(options: RunOptions): AsyncGenerator<HarnessEven
         arguments: call.arguments,
       })
 
-      const result = unknownToolResult(call)
+      const result = await dispatchToolCall(call, registry)
       messages.push({
         role: 'tool',
         content: result.output,
