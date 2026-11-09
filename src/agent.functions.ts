@@ -62,17 +62,21 @@ export const getCannedReply = createServerFn({ method: 'GET' }).handler(async ()
 })
 
 /**
- * One run, streamed. The page calls it as `startRun({ data: { prompt: '…' } })` and gets
- * back an async generator it can consume with `for await`: each harness event arrives
- * while the run is still going, and the generator's return value is the closing
- * `RunSummary`.
+ * One run, streamed. The page calls it as `startRun({ data: { prompt: '…' } })` and reads the
+ * result with `for await`: each harness event arrives while the run is still going.
  *
- * The validator is what makes the call possible at all, and that was measured rather than
- * assumed. Without one, the request type is `undefined` and `startRun({ data: 'x' })` is
- * refused by `tsc` with "Type 'string' is not assignable to type 'undefined'". With a zod
- * object in front of it the call site is typed and checked on the server before any event
- * is produced. It asks for a string only; an empty or whitespace-only prompt is refused by
- * the composition, which is where that rule already lives.
+ * What the wire carries was measured 2026-11-08 in the running app, and the type and the wire
+ * do not agree. The value the caller gets is an async iterable — `Symbol.asyncIterator` present,
+ * `next` and `return` both `undefined`, prototype `null` — so only the *yielded* values cross and
+ * the generator's return value, this handler's `RunSummary`, does not. Three events arrived and
+ * no fourth value. A caller therefore cannot read a summary from this stream yet.
+ *
+ * The validator is what makes the call possible at all, and that too was measured. Without one,
+ * the request type is `undefined` and `startRun({ data: 'x' })` is refused by `tsc` with "Type
+ * 'string' is not assignable to type 'undefined'". With a zod object in front of it the call site
+ * is typed and checked on the server before any event is produced. It asks for a string only; an
+ * empty or whitespace-only prompt is refused by the composition, which is where that rule already
+ * lives.
  */
 export const startRun = createServerFn({ method: 'POST' })
   .validator(z.object({ prompt: z.string() }))

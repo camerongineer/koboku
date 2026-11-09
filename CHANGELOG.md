@@ -69,6 +69,26 @@ inspector page. Tools are recorded under this heading as they are implemented, n
   anything runs: `{ data: { nope: 1 } }` gives "Object literal may only specify known properties, and
   'nope' does not exist in type '{ prompt: string; }'", and `{ data: 'a prompt' }` gives "Type
   'string' is not assignable to type '{ prompt: string; }'".
+- `src/routes/index.tsx` gained a run section: a prompt box, a button, and one rendered line per
+  event as it arrives, read from the stream with `for await`.
+- Measured 2026-11-08 in the running dev server (`npm run dev`, port 3000, Chromium): one click on
+  `start the run` produced one `POST /_serverFn/…` whose response carried `content-type:
+  application/x-tss-framed; v=1` and `transfer-encoding: chunked`, and the page rendered, in order,
+  `iteration 1: asking the model`, `iteration 1: stop stop, 0 tool calls, tokens 0/0`, `run closed:
+  model_stop after 1 iteration(s), total tokens 0/0`, with no console error. The run left
+  `traces/run-mw8k027w-svsobljn.jsonl` written at 16:59:29 with four records — `run_header`, then the
+  same three events the page rendered. Measured the same way, an earlier run whose page consumer threw
+  left a complete four-record trace behind: the file does not depend on how the run is consumed.
+- Measured 2026-11-08, and it contradicts the type: what `startRun` hands the caller is an async
+  iterable, not a generator — `[object AsyncGenerator]`, `typeof next: undefined`, `typeof return:
+  undefined`, `typeof Symbol.asyncIterator: function`, no own keys, prototype `null`. Only yielded
+  values cross the wire: three arrived, no fourth. So `for await` is the only way to read it, and the
+  handler's return value — `RunSummary` — reaches no one yet, which is why the page shows no run id
+  and no final assistant text.
+- Measured 2026-11-08: the served modules stay clean on both sides of the split. `GET
+  /src/agent.functions.ts` returns 33 code lines: two framework imports, no `agent.run`, no
+  `openTrace`, no `node:fs`. The route's component chunk imports `/src/agent.functions.ts` and React
+  and nothing under `src/harness/` — the `HarnessEvent` import is type-only and compiles away.
 - Measured 2026-11-08 in the running dev server (`npm run dev`, port 3000, Chromium): the page
   calls `getCannedReply`, renders `the canned reply` with `model qwen3.8-flash-next-iq3_xxs`, and
   the console holds no error. `loadConfig` reads `process.env` and `npm run dev` passes no env
@@ -89,11 +109,13 @@ inspector page. Tools are recorded under this heading as they are implemented, n
   it writes — measured: 0 files left in `traces/` afterwards.
 - Gaps recorded at this step: the writer records no timestamps or durations, so M5's "durations"
   clause is still unmet; one open-write-close per event is a cost that has been accepted here and
-  measured nowhere, which is an M6 measurement; nothing in `src/routes/` calls `startRun` yet, so
-  the streaming wire has been proved by the compiler and by a unit test over the generator, not
-  across an HTTP request — whether the generator's return value survives the wire is unmeasured, as
-  is what a rejected request looks like to the page; and a run id is built from the clock and
-  randomness, with nothing checking that two runs cannot collide.
+  measured nowhere, which is an M6 measurement; the stream carries harness events only, so `runId` and
+  the final assistant text are on the server and not in the page; a rejected request — a prompt field
+  that is missing or not a string — has been refused at compile time but never observed from the page;
+  "as they happen" is proved in order, not in wall-clock time, because the scripted provider answers
+  all three events at once and no separated paint has been measured — that needs a real model call;
+  and a run id is built from the clock and randomness, with nothing checking that two runs cannot
+  collide.
 
 ### Toolchain
 
