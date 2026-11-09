@@ -2,9 +2,8 @@
 
 The harness is the product. The UI is a client of it.
 
-Status: M0 and M1 complete, released as 0.0.1 and 0.0.2 (both 2026-11-06). M2 is in progress: its
-first step, the incremental trace writer, is written and tested.
-`CHANGELOG.md` records what exists; §6 below is the order.
+Status: M0, M1 and M2 complete, released as 0.0.1 and 0.0.2 (2026-11-06) and 0.0.3 (2026-11-08). M3 is
+next. `CHANGELOG.md` records what exists; §6 below is the order.
 
 ---
 

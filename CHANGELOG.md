@@ -12,148 +12,9 @@ with the date and the tests that proved it.
 ## Unreleased — planned scope of v1
 
 The scope of v1, as planned: a local, single-user agent harness with a browser chat page and a trace
-inspector page. Tools are recorded under this heading as they are implemented, not before.
-
-### Added
-
-- `src/harness/trace.ts` writes the run trace: one file per run into git-ignored `traces/`, one JSON
-  record per line, appended the moment the event happens instead of collected and written at the end.
-  The first line names the run and the model; every line after it is a harness event as it was
-  yielded — the model's own `tool_call_id`, its `arguments` string still unparsed, and the
-  provider-reported token counts. A run id that would place the file outside `traces/` is refused
-  before anything is created. Recorded 2026-11-08 as the first step of M2: the writer was pulled
-  forward from M5 because M2's exit test reads a real trace file, and M5 keeps the inspector page.
-- Measured 2026-11-08: `test/trace-writer.test.ts`, 6 tests — one file per run with its own header;
-  each event already on disk while the run is still in progress, proven by the scripted provider
-  having been asked nothing at the moment asserted rather than by a clock; a cut-off `arguments`
-  string recorded byte for byte and still unparseable; eight run ids refused (`../escaped`,
-  `..\escaped`, `a/b`, `a\b`, `..`, `.`, an empty id, `C:evil`) with nothing written outside the
-  directory; the directory created when absent; and the standing `traces/` default.
-  `npm run test` → 5 files, 25 tests passed in 335 ms with no model server and no network;
-  `npm run typecheck` → exit 0; `npm run lint` → exit 0.
-- `runAgent` now records its own events. `RunOptions` accepts an optional trace: the caller opens it,
-  because the caller decides which run this is, and the loop fills it. An event is written before it is
-  handed to the consumer, so a caller that stops consuming early still leaves a record of everything
-  that had already happened, and a sink that cannot write ends the run instead of letting it continue
-  unrecorded. The sink is imported as a type, so the loop still has no runtime dependency on the
-  filesystem.
-- Measured 2026-11-08: `test/loop-trace-sink.test.ts`, 4 tests — the file holds the header plus all
-  seven events in order; two events the caller discarded are still on disk; a sink that throws stops
-  the run with zero provider calls spent; and the same scripted run, watched and unwatched, yields the
-  identical event list. `npm run test` → 6 files, 29 tests passed in 319 ms with no model server and no
-  network; `npm run typecheck` → exit 0; `npm run lint` → exit 0.
-- `src/agent.run.ts` is the caller half of a run, and it has no framework in it: it opens a trace,
-  drives `runAgent` and hands each `HarnessEvent` to the caller as the loop produces it, and its
-  return value is a plain `RunSummary` — run id, finish reason, iterations, summed
-  provider-reported usage and the last assistant text. The trace path is deliberately not
-  returned: a browser must not learn where the server keeps its files. The provider is still the
-  scripted one, so this step proves the composition rather than the model.
-- `src/agent.functions.ts` has a second server function, `startRun`, whose handler is an async
-  generator (`return yield* streamRun(data.prompt)`), so a page consumes it with `for await` and
-  sees each iteration while the run is still going. It is the only request in the project with a
-  validator: `z.object({ prompt: z.string() })`. The bridge exports server functions and types and
-  nothing else. That boundary is a measurement, not a preference: the body of a server function
-  stays on the server, but a plain function **exported** from a bridge file is served to the browser
-  together with everything it imports. With `runRecorded` exported from the bridge the browser was
-  served `src/harness/trace.ts` and the page failed with `Module "node:fs" has been externalized for
-  browser compatibility. Cannot access "node:fs.appendFileSync" in client code`. After the split, the
-  same request for the same file returned 35 lines: two framework imports and two call stubs, no
-  harness import and no `node:fs`. Measured 2026-11-08 with the generator handler in place, the same
-  request now returns 29 code lines, still two framework imports, no `agent.run`, no `openTrace` and
-  no `node:fs`: a handler body stays server-side even when it is a generator and even when the
-  validator is a zod schema.
-- Measured 2026-11-08 on the call site, with a throwaway probe file that was then deleted: the page
-  side of `startRun({ data: { prompt: 'a prompt' } })` typechecks, and its type is
-  `Promise<AsyncGenerator<HarnessEvent, RunSummary, void>>` — events and the closing summary, which
-  `for await` discards and a hand-driven `next()` loop keeps. A wrong shape is refused before
-  anything runs: `{ data: { nope: 1 } }` gives "Object literal may only specify known properties, and
-  'nope' does not exist in type '{ prompt: string; }'", and `{ data: 'a prompt' }` gives "Type
-  'string' is not assignable to type '{ prompt: string; }'".
-- `streamRun` takes its provider and its configuration from the caller instead of building a
-  scripted provider and reading the environment itself. `startRun` now hands it `strataProvider(config)`
-  with `loadConfig()` called once, which is the first place in the project a run reaches the model
-  server. The scripted provider is what the tests hand in, as AGENTS.md §3 rule 4 requires.
-- Measured 2026-11-08 in the running dev server, one real run through the page: 125 ms after the click
-  the page held only `iteration 1: asking the model`, its button read `running`, and `run closed` was
-  not on screen — the model was still answering. It then rendered `iteration 1: stop stop, 0 tool calls,
-  tokens 62/107`, `run closed: model_stop after 1 iteration(s), total tokens 62/107` and the run id
-  `run-mw8kd2l3-ozxqurop`, with no console error. The id names the file:
-  `traces/run-mw8kd2l3-ozxqurop.jsonl`, 376 bytes written at 17:09:39, holding `run_header` and the same
-  three records with the same 62/107 counts — provider-reported, since the harness adds no numbers of
-  its own.
-- Measured 2026-11-08: `GET http://127.0.0.1:8080/v1/models` with no credentials returns `401
-  Unauthorized`, which is how the model server was confirmed to be listening without sending it a key.
-- Measured 2026-11-08 after that call was wired in: `GET /src/agent.functions.ts` still returns 45 code
-  lines with the same two framework imports, and the strings `provider/strata.ts`, `config.ts`,
-  `provider/fake.ts` and `process.env` do not appear in the served file at all — a handler body that
-  reads the environment stays on the server.
-- Measured 2026-11-08: `npm run test` → 7 files, 35 tests in 362 ms; `npm run typecheck` → exit 0;
-  `npm run lint` → exit 0. Two assertions moved with the provider: a refused whitespace-only prompt is
-  now also proven never to have asked the provider anything (`provider.calls` is empty), and the
-  trimming proof reads `provider.calls[0].messages[0].content` rather than the reply text, because the
-  reply is no longer built from the prompt here.
-- `src/agent.run.ts` ends its stream with the closing summary as a value of its own, tagged
-  `run_summary`, rather than as the generator's return value; `startRun` delegates to it and the page
-  now shows the run id, the finish reason, the iteration count, the total tokens and the final
-  assistant text. The harness event union is unchanged: the tag belongs to the streamed run, not to
-  the loop.
-- Measured 2026-11-08 in the running dev server (`npm run dev`, port 3000, Chromium): one click
-  rendered `iteration 1: asking the model`, `iteration 1: stop stop, 0 tool calls, tokens 0/0`,
-  `run closed: model_stop after 1 iteration(s), total tokens 0/0`, then `run-mw8k55iv-1lfkohwa` and
-  `scripted reply to: Say hello, then say what you just did.`, with no console error — so the summary
-  crosses the wire once it is yielded. The page-named run id is the trace file name:
-  `traces/run-mw8k55iv-1lfkohwa.jsonl` exists, holding `run_header` plus exactly the three events the
-  page showed.
-- Measured 2026-11-08: the type re-export across the bridge adds nothing that runs. `GET
-  /src/agent.functions.ts` returns 45 code lines with the same two framework imports, and the string
-  `RunSummary` does not appear in the served file at all. The route's component chunk imports
-  `/src/agent.functions.ts` and React and nothing under `src/harness/`.
-- `src/routes/index.tsx` gained a run section: a prompt box, a button, and one rendered line per
-  event as it arrives, read from the stream with `for await`.
-- Measured 2026-11-08 in the running dev server (`npm run dev`, port 3000, Chromium): one click on
-  `start the run` produced one `POST /_serverFn/…` whose response carried `content-type:
-  application/x-tss-framed; v=1` and `transfer-encoding: chunked`, and the page rendered, in order,
-  `iteration 1: asking the model`, `iteration 1: stop stop, 0 tool calls, tokens 0/0`, `run closed:
-  model_stop after 1 iteration(s), total tokens 0/0`, with no console error. The run left
-  `traces/run-mw8k027w-svsobljn.jsonl` written at 16:59:29 with four records — `run_header`, then the
-  same three events the page rendered. Measured the same way, an earlier run whose page consumer threw
-  left a complete four-record trace behind: the file does not depend on how the run is consumed.
-- Measured 2026-11-08, and it contradicts the type: what `startRun` handed the caller was an async
-  iterable, not a generator — `[object AsyncGenerator]`, `typeof next: undefined`, `typeof return:
-  undefined`, `typeof Symbol.asyncIterator: function`, no own keys, prototype `null`. Only yielded
-  values cross the wire: three arrived, no fourth. So `for await` is the only way to read it, and the
-  summary this handler returned then reached no one, which is why the page showed no run id and no
-  final assistant text until the summary became a yielded value in the step above.
-- Measured 2026-11-08: the served modules stay clean on both sides of the split. `GET
-  /src/agent.functions.ts` returns 33 code lines: two framework imports, no `agent.run`, no
-  `openTrace`, no `node:fs`. The route's component chunk imports `/src/agent.functions.ts` and React
-  and nothing under `src/harness/` — the `HarnessEvent` import is type-only and compiles away.
-- Measured 2026-11-08 in the running dev server (`npm run dev`, port 3000, Chromium): the page
-  calls `getCannedReply`, renders `the canned reply` with `model qwen3.8-flash-next-iq3_xxs`, and
-  the console holds no error. `loadConfig` reads `process.env` and `npm run dev` passes no env
-  file, and `loadConfig` refuses to return without the API key — so a rendered page is also the
-  proof that the standing configuration, key included, reaches the server runtime as the dev
-  script stands. No test reads that key.
-- Measured 2026-11-08: `test/bridge-run.test.ts`, 6 tests — a whitespace-only prompt refused, and
-  proven to refuse on the first `next()` because an async generator body does not run at the call,
-  with the directory listed before and after showing no new file; events handed over one at a time
-  with the trace already two records ahead while the caller holds only the first, in the order
-  `model_call_started`, `model_call_finished`, `run_finished`, and the summary arriving as the
-  `done` result rather than as a fourth event, at the same path the mid-run file had; one spoken
-  iteration reported as `model_stop` after 1 iteration with the scripted zero counts; a trace written
-  into `traces/` by the loop itself, header first and `run_finished` last, four records for one
-  spoken iteration; the generated run id accepted by the trace guard; and a summary with no path in
-  it. `npm run test` → 7 files, 35 tests passed in 444 ms with no model server, no network and no
-  browser; `npm run typecheck` → exit 0; `npm run lint` → exit 0. The suite deletes every trace file
-  it writes — measured: 0 files left in `traces/` afterwards.
-- Gaps recorded at this step: the writer records no timestamps or durations, so M5's "durations"
-  clause is still unmet; one open-write-close per event is a cost that has been accepted here and
-  measured nowhere, which is an M6 measurement; a rejected request — a prompt field that is missing or
-  not a string — has been refused at compile time but never observed from the page; "as they happen"
-  is proved in order, not in wall-clock time, because the scripted provider answers all its events at
-  once and no separated paint has been measured — that needs a real model call; nothing reads a trace
-  file back yet; and a run id is built from the clock and randomness, with nothing checking that two
-  runs cannot collide.
+inspector page. A completed milestone leaves this heading and becomes its own versioned section, so
+what is built is listed there and not here; what remains under this heading is work that has not yet
+been released.
 
 ### Toolchain
 
@@ -179,6 +40,125 @@ inspector page. Tools are recorded under this heading as they are implemented, n
   `tool_call_id` with no tool name, since the wire has no place for one. `npm run test` → 4 files,
   19 tests passed in 597 ms with no model server and no network; `npm run typecheck` → exit 0;
   `npm run lint` → exit 0.
+
+## 0.0.3 — 2026-11-08 — M2
+
+A run is started from the page, reaches the local model server through the real adapter, streams its
+iterations back as they happen, and leaves a trace file that says the same thing the page said. Both
+halves of the exit test were measured in the running app.
+
+### Added
+
+- `src/harness/trace.ts` writes the run trace: one file per run into git-ignored `traces/`, one JSON
+  record per line, appended the moment the event happens instead of collected and written at the end.
+  The first line names the run and the model; every line after it is a harness event as it was
+  yielded — the model's own `tool_call_id`, its `arguments` string still unparsed, and the
+  provider-reported token counts. A run id that would place the file outside `traces/` is refused
+  before anything is created. The writer was pulled forward from M5 because this exit test reads a
+  real trace file, and M5 keeps the inspector page.
+- `runAgent` records its own events. `RunOptions` accepts an optional trace: the caller opens it,
+  because the caller decides which run this is, and the loop fills it. An event is written before it
+  is handed to the consumer, so a caller that stops consuming early still leaves a record of
+  everything that had already happened, and a sink that cannot write ends the run instead of letting
+  it continue unrecorded. The sink is imported as a type, so the loop still has no runtime dependency
+  on the filesystem.
+- `src/agent.run.ts` is the caller half of a run, with no framework in it: it opens the trace, drives
+  `runAgent`, hands each `HarnessEvent` to the caller as the loop produces it, and closes the stream
+  with the run's `RunSummary` — run id, finish reason, iterations, summed provider-reported usage and
+  the last assistant text — yielded as a value tagged `run_summary` rather than returned. Plain data,
+  and deliberately no trace path: a browser must not learn where the server keeps its files. The
+  provider and the configuration are handed in by the caller, which is what lets the tests run against
+  `fake.ts` while the page runs against Strata through the same composition.
+- `src/agent.functions.ts` gained `startRun`: a POST server function whose handler is an async
+  generator delegating to that composition, with `z.object({ prompt: z.string() })` validating the
+  request before any run exists. The bridge exports server functions and types and nothing else. That
+  boundary is a measurement, not a preference: the body of a server function stays on the server, but
+  a plain function **exported** from a bridge file is served to the browser together with everything
+  it imports. With the composition exported from the bridge the browser was served
+  `src/harness/trace.ts` and the page failed with `Module "node:fs" has been externalized for browser
+  compatibility. Cannot access "node:fs.appendFileSync" in client code`. In its final shape the same
+  request returns 45 code lines — two framework imports and two call stubs — with no `agent.run`, no
+  `trace.ts`, no `provider/strata.ts`, no `config.ts` and no `process.env` anywhere in what the browser
+  is given.
+- `src/routes/index.tsx` has a run section: a prompt box, a button, and one rendered line per value as
+  it arrives, read with `for await`.
+
+### What the streaming wire turned out to carry, measured 2026-11-08
+
+- What `startRun` hands the caller is an async iterable, not a generator: `[object AsyncGenerator]`,
+  `typeof next: undefined`, `typeof return: undefined`, `typeof Symbol.asyncIterator: function`, no
+  own keys, prototype `null`. Only yielded values cross — three events arrived with no fourth value —
+  so `for await` is the only way to read it, and a summary returned by the handler reached no one.
+  That is why `RunSummary` is a yielded, tagged last value. Each run is one `POST /_serverFn/…` whose
+  response carries `content-type: application/x-tss-framed; v=1` and `transfer-encoding: chunked`.
+- The validator is what makes a call possible at all, and the compiler is the gate. With no validator
+  `startRun({ data: 'a prompt' })` is refused with "Type 'string' is not assignable to type
+  'undefined'"; with the zod object it typechecks, and a wrong shape is refused before anything runs —
+  `{ data: { nope: 1 } }` gives "Object literal may only specify known properties, and 'nope' does not
+  exist in type '{ prompt: string; }'". Measured with throwaway probe files, then deleted.
+- `loadConfig` reads `process.env` and `npm run dev` passes no env file, and it still works: the page
+  renders `model qwen3.8-flash-next-iq3_xxs`, and `loadConfig` refuses to return without the API key,
+  so a rendered page is proof that the standing configuration, key included, reaches the server
+  runtime as the dev script stands. `GET http://127.0.0.1:8080/v1/models` with no credentials answers
+  `401 Unauthorized`, which is how the model server was confirmed to be listening without sending it a
+  key. No test reads that key.
+
+### Tests
+
+- `test/trace-writer.test.ts`, 6 tests — one file per run with its own header; each event already on
+  disk while the run is still in progress, proven by the scripted provider having been asked nothing at
+  the moment asserted rather than by a clock; a cut-off `arguments` string recorded byte for byte and
+  still unparseable; eight run ids refused (`../escaped`, `..\escaped`, `a/b`, `a\b`, `..`, `.`, an
+  empty id, `C:evil`) with nothing written outside the directory; the directory created when absent;
+  and the standing `traces/` default.
+- `test/loop-trace-sink.test.ts`, 4 tests — the file holds the header plus all seven events in order;
+  two events the caller discarded are still on disk; a sink that throws stops the run with zero
+  provider calls spent; and the same scripted run, watched and unwatched, yields the identical event
+  list.
+- `test/bridge-run.test.ts`, 6 tests — a whitespace-only prompt refused on the first `next()`, because
+  a generator body does not run at the call, with the directory listed before and after showing no new
+  file and `provider.calls` empty; values handed over one at a time with the trace already two records
+  ahead while the caller holds only the first, in the order `model_call_started`,
+  `model_call_finished`, `run_finished`, `run_summary`, and nothing left in the generator's return; one
+  spoken iteration reported as `model_stop` with the scripted zero counts, and the trimmed prompt read
+  back out of `provider.calls[0].messages[0].content`; a trace written into `traces/` by the loop
+  itself, header first and `run_finished` last, four records for one spoken iteration; the generated
+  run id accepted by the trace guard; and a summary with no path in it.
+- Gates as this milestone closed: `npm run test` → 7 files, 35 tests in 375 ms with no model server, no
+  network and no browser; `npm run typecheck` → exit 0; `npm run lint` → exit 0. The suite deletes
+  every trace file it writes — measured: 0 files left in `traces/` afterwards.
+
+### Exit test, both halves
+
+Measured 2026-11-08 in the running app (`npm run dev`, port 3000, Chromium), one click starting one
+real run:
+
+- **Iterations and tokens appear in the page as they happen.** 125 ms after the click the page held
+  only `iteration 1: asking the model`, its button read `running`, and `run closed` was not on screen:
+  the model was still answering. The page then rendered `iteration 1: stop stop, 0 tool calls, tokens
+  62/107`, `run closed: model_stop after 1 iteration(s), total tokens 62/107`, then the run id and the
+  final text, with no console error.
+- **A real trace file exists and matches what the UI showed.** The run id the page displayed is the
+  file name: `traces/run-mw8kd2l3-ozxqurop.jsonl`, 376 bytes written at 17:09:39, holding `run_header`
+  for model `qwen3.8-flash-next-iq3_xxs`, `model_call_started` at iteration 1, `model_call_finished`
+  with `stopReason: stop` and usage 62/107, and `run_finished` with `model_stop` after 1 iteration and
+  the same 62/107 totals. The harness contributed no numbers of its own.
+- Measured alongside it: a run whose consumer broke still left a complete trace. The earlier
+  `stream.next is not a function` failure left `traces/run-mw8jjtyv-lc3ngw19.jsonl` holding all four
+  records.
+
+### Gaps recorded at M2
+
+- Nothing guards a bridge file against exporting a plain function. `npm run test`, `npm run typecheck`
+  and `npm run lint` all passed while the page was broken by exactly that, and no test catches it.
+- The trace records no timestamps or durations, so M5's "durations" clause is still unmet; one
+  open-write-close per event is a cost accepted here and measured nowhere, which is an M6 measurement.
+- A request rejected by the validator has been refused at compile time but never observed from the
+  page.
+- Nothing stops a run when its consumer goes away: measured above, the server finished a run that
+  nobody was reading.
+- Nothing reads a trace file back yet, and no size budget bounds what a trace may grow to.
+- A run id is built from the clock and randomness, with nothing checking that two runs cannot collide.
 
 ## 0.0.2 — 2026-11-06 — M1
 
