@@ -28,6 +28,26 @@ been released.
   in the committed `.env`, the provider key belongs in git-ignored `.env.local`, and `.env.example`
   lists every key with no values.
 
+### Changed
+
+- The tool registry a real run is built with moved out of the `startRun` handler body into
+  `src/agent.wiring.ts`, one function that takes a jail and imports no framework. The reason is a
+  measured property of the boundary rather than taste: `src/agent.functions.ts` may export nothing but
+  server functions, and no test can call a server function — so the choice of which tools a run gets was
+  the part of the harness no test could reach. The handler keeps the half only it can do, opening the jail
+  over the configured directory, and hands that jail over.
+- Measured 2026-11-09: `test/bridge-wiring.test.ts`, 5 tests — the two tool names in the order a provider
+  is shown them, each tool's published argument schema with `additionalProperties: false`, a file written
+  and read back through the jail the test injected, both tools refusing `..` with the injected root named
+  in the refusal and nothing written outside, and an invented tool name refused while naming the two that
+  exist. Proved non-vacuous by three deliberate breakages, each restored: swapping the two tools failed 2
+  tests, building the reader over a jail of its own choosing failed 2 — the refusal stopped naming the
+  injected root — and removing the writer failed all 5. `npm run test` → 15 files, 98 tests passed;
+  `npm run typecheck` → exit 0; `npm run lint` → exit 0, all at 19:23 on 2026-11-09.
+- Still open from the same gap: no test calls `startRun`, so nothing proves the handler passes
+  `config.workspaceDir` into `openJail` and that jail into the wiring. The registry is guarded; the two
+  lines that feed it are not.
+
 ### Fixed
 
 - `src/harness/provider/strata.ts` now serialises an assistant message that carries tool calls:
