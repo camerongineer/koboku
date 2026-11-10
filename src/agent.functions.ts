@@ -8,6 +8,7 @@ import { cannedTurn, fakeProvider } from './harness/provider/fake'
 import { strataProvider } from './harness/provider/strata'
 import { readFileTool } from './harness/tools/read-file'
 import { createRegistry } from './harness/tools/registry'
+import { writeFileTool } from './harness/tools/write-file'
 
 /**
  * The bridge. This is the only kind of file allowed to know about both worlds: it may
@@ -97,11 +98,11 @@ export const startRun = createServerFn({ method: 'POST' })
     // loop are given the same values.
     const config = loadConfig()
 
-    // The jail is opened here, at the one place that owns the directory, and the tool is built on
-    // top of it: a reader that was handed no jail cannot be constructed. A root that cannot be
-    // opened raises before the run starts, which is a configuration mistake saying so.
+    // The jail is opened here, at the one place that owns the directory, and every tool is built on
+    // top of it: a tool that touches a file without a jail cannot be constructed. A root that cannot
+    // be opened raises before the run starts, which is a configuration mistake saying so.
     const jail = openJail(config.workspaceDir)
-    const registry = createRegistry([readFileTool({ jail })])
+    const registry = createRegistry([readFileTool({ jail }), writeFileTool({ jail })])
 
     yield* streamRun(data.prompt, strataProvider(config), config, registry)
   })
