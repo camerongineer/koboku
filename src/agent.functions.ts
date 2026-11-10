@@ -18,8 +18,9 @@ import { strataProvider } from './harness/provider/strata'
  * constraint, not a preference: the body of a server function stays on the server, but a
  * plain function exported from this file is handed to the browser along with everything
  * it imports. The composition that opens a trace lives in `agent.run.ts` for that reason
- * (see its header comment for the measurement). The same rule is why the jail and the
- * filesystem tool below are used inside a handler body and never exported.
+ * (see its header comment for the measurement). The same rule is why the jail is opened inside a
+ * handler body and never exported, and why the tools a run gets are built in `agent.wiring.ts`
+ * rather than here.
  */
 
 export interface Reply {
