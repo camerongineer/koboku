@@ -2,13 +2,11 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 
 import { streamRun, type RunStreamValue } from './agent.run'
+import { toolRegistryForRun } from './agent.wiring'
 import { loadConfig } from './harness/config'
 import { openJail } from './harness/jail'
 import { cannedTurn, fakeProvider } from './harness/provider/fake'
 import { strataProvider } from './harness/provider/strata'
-import { readFileTool } from './harness/tools/read-file'
-import { createRegistry } from './harness/tools/registry'
-import { writeFileTool } from './harness/tools/write-file'
 
 /**
  * The bridge. This is the only kind of file allowed to know about both worlds: it may
@@ -98,11 +96,13 @@ export const startRun = createServerFn({ method: 'POST' })
     // loop are given the same values.
     const config = loadConfig()
 
-    // The jail is opened here, at the one place that owns the directory, and every tool is built on
-    // top of it: a tool that touches a file without a jail cannot be constructed. A root that cannot
-    // be opened raises before the run starts, which is a configuration mistake saying so.
+    // The jail is opened here, at the one place that owns the directory: a tool that touches a file
+    // without a jail cannot be constructed, and a root that cannot be opened raises before the run
+    // starts, which is a configuration mistake saying so. The tools themselves are built in
+    // `agent.wiring.ts`, which takes the jail and is reachable from a test; this file exports nothing
+    // but server functions.
     const jail = openJail(config.workspaceDir)
-    const registry = createRegistry([readFileTool({ jail }), writeFileTool({ jail })])
+    const registry = toolRegistryForRun(jail)
 
     yield* streamRun(data.prompt, strataProvider(config), config, registry)
   })
