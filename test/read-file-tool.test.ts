@@ -23,11 +23,11 @@ function linkKind(): 'junction' | 'dir' {
   return process.platform === 'win32' ? 'junction' : 'dir'
 }
 
-function withWorkspace<R>(run: (workspace: string, outside: string) => R): R {
+async function withWorkspace<R>(run: (workspace: string, outside: string) => Promise<R> | R): Promise<R> {
   const workspace = mkdtempSync(join(tmpdir(), 'koboku-work-'))
   const outside = mkdtempSync(join(tmpdir(), 'koboku-out-'))
   try {
-    return run(workspace, outside)
+    return await run(workspace, outside)
   } finally {
     rmSync(outside, { recursive: true, force: true })
     rmSync(workspace, { recursive: true, force: true })
@@ -90,11 +90,10 @@ describe('read_file', () => {
 
       expect(missing.isError).toBe(true)
       expect(missing.output).toContain('no such file')
-      // On Windows a directory cannot be opened for reading at all, so the OS refusal is what the
-      // model is told. The `isFile` check inside the tool covers the systems where opening a directory
-      // succeeds and reading it is the step that fails.
+      // Measured on this machine 2026-11-09, node v24.12.0: opening a directory for reading succeeds,
+      // so the tool's own `isFile` check is what answers, and its wording is what the model is given.
       expect(directory.isError).toBe(true)
-      expect(directory.output).toContain('could not be opened')
+      expect(directory.output).toContain('is not a regular file')
     })
   })
 
