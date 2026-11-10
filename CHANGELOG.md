@@ -41,6 +41,106 @@ been released.
   19 tests passed in 597 ms with no model server and no network; `npm run typecheck` → exit 0;
   `npm run lint` → exit 0.
 
+## 0.0.5 — 2026-11-09 — M4
+
+A run can now create a file. One new tool, built on the jail M3 already needed, and it creates only:
+nothing a run has not read can be destroyed by a badly aimed call. The three escape routes this
+milestone names were refused by a real model run as well as by tests.
+
+### Added
+
+- `src/harness/tools/write-file.ts` — `write_file`, built on a jail and impossible to construct without
+  one. Three decisions, all about what a mistake costs. It creates only: the exclusive `wx` open is what
+  refuses an existing target, and the `lstatSync` check before it exists only to say so in words the model
+  can act on. It measures before it opens: content is sized against the declared `maxBytes` in bytes, not
+  characters, before the file is opened, so an over-budget call leaves no file at all rather than half one
+  — for a writer `maxBytes` bounds what lands on disk rather than what comes back. It does not build
+  directories: a missing parent is refused, and the refusal names the parent and states the policy in one
+  sentence. Only `ENOENT` is read as "the name is free", so an examination error is never presented as a
+  green light; a short write is reported as an incomplete file; the descriptor is closed in `finally`.
+  Standing budgets `maxBytes` 4096 and `deadlineMs` 2000.
+- App wiring — the `startRun` handler's registry now holds two tools, `read_file` then `write_file`, both
+  built on the one jail value opened from `config.workspaceDir`, so a run cannot be handed a writer pointed
+  at a different root than its reader.
+
+### Tests
+
+- `test/write-file-tool.test.ts`, 9 tests — a real file created end to end from the `arguments` string a
+  provider sends, and read back from disk rather than trusted from the tool's message; `..` refused with
+  nothing written outside; an absolute path outside refused with nothing written there; a link out refused
+  with nothing written through it; an existing file refused with the original bytes still intact; a missing
+  parent refused with no directory created; content over the byte budget refused with no file at all, proved
+  with a 300-character payload measured as 600 bytes against a 400-byte budget; a path that is a directory
+  refused, and an empty `path` refused by the strict schema before the tool runs; the tool accepted by the
+  registry with the two parameters a model is shown. Every file it touches lives in a temp directory it
+  creates and removes. On Windows the link is a junction, which needs no elevated privileges.
+- Each escape route is asserted twice: the refusal the model can read, and the absence of a file where the
+  refusal should have left none. A test that checked only the message would pass on a harness that refused
+  and wrote anyway.
+- All three groups were proved non-vacuous by deliberate breakage on 2026-11-09, then restored and verified
+  byte-identical by hash before committing. Widening the byte check by 100000 failed exactly one test, the
+  budget test. Replacing `jail.resolve` with a text check that strips `..` and prefixes the root failed
+  exactly the three escape tests — stripping `..` quietly rewrites `../escape.txt` into a file that lands
+  *inside* the workspace, so those tests fail because something was written. Removing the `wx` flag left all
+  9 passing, which is recorded below as a gap rather than as a pass.
+- Gates as this milestone closed, measured 2026-11-09 at 18:06 and confirmed again at 18:51: `npm run test`
+  → 14 files, 93 tests passed with no model server, no network and no clock-dependent assertion;
+  `npm run typecheck` → exit 0; `npm run lint` → exit 0. `traces/` held 17 files both before and after the
+  suite ran.
+
+### Exit test, both halves
+
+- **Scripted half.** `test/write-file-tool.test.ts` holds the three routes PLAN.md §6 names, at lines 69,
+  81 and 96 for `..`, an absolute path and a link. All green.
+- **Real-model half, recorded rather than gated.** Measured 2026-11-09 in the running app (`npm run dev`,
+  port 3000, Chromium), a prompt asking the model to make four `write_file` calls and report each result
+  verbatim. A junction was placed at `workspace/outside-link` pointing at a directory outside the
+  repository, so the link route was a fact on the filesystem rather than a story; it was removed after the
+  run with `rmdir`, which takes the link and not its target.
+  - `traces/run-mwa3bk0f-qukwjg50.jsonl`, 2657 bytes written 18:48:16, fourteen records — `run_header` for
+    model `qwen3.8-flash-next-iq3_xxs`; iteration 1 finished with `stopReason: tool_calls`, 4 calls, usage
+    612/242; iteration 2 finished with `stopReason: stop`, 0 calls, usage 1016/561; `run_finished` with
+    `model_stop` after 2 iterations and totals 1628/803.
+  - The four results, as the model read them: `wrote 18 bytes to "m4-run.txt". The file is new; nothing was
+    overwritten.` with `isError: false`; then three refusals with `isError: true` — `"../m4-escape.txt"`,
+    `C:\Users\c-em\AppData\Local\Temp\opencode\koboku-notes\outside-target\m4-absolute.txt`, and
+    `outside-link/m4-through.txt` — each one `the path was refused: … resolves outside the workspace. The
+    workspace is C:\Users\c-em\Repos\koboku\workspace; name a path inside it.` The link attempt is the
+    instructive one: that path *looks* like an ordinary path inside the workspace, and the jail answered by
+    naming the root instead, because it resolved the link before anything was opened. Each result carried
+    the model's own `tool_call_id`.
+  - Checked against the disk at 18:49:45, not against the tool's wording: `workspace/m4-run.txt` was 18
+    bytes containing `the number is 9021`; the scratch target directory held 0 entries; no `m4-escape.txt`
+    existed beside the repository root or in the system temp directory. The written file was then removed,
+    because the tool is create-only and leaving it would make the next identical run fail with "already
+    exists" for a reason that has nothing to do with the harness. `workspace/` was left as `.gitkeep` plus
+    the 168-byte notes file, and `git status` reported nothing.
+  - The page rendered the same records, read out of the browser at 18:48: `iteration 1: stop tool_calls, 4
+    tool calls, tokens 612/242`, each `write_file asked for` and `write_file returned` line, `iteration 2:
+    stop stop, 0 tool calls, tokens 1016/561`, `run closed: model_stop after 2 iteration(s), total tokens
+    1628/803`, and the model's own verbatim quoting of all four results. No console error. The harness
+    contributed no token numbers of its own.
+  - Measured alongside it: `GET http://127.0.0.1:8080/v1/models` without credentials answers
+    `401 Unauthorized` (18:44), so an authenticated completed run is proof the standing configuration — key
+    included — reached the server runtime. The dev server bound to IPv6 only: `http://localhost:3000/`
+    answered 200 while `http://127.0.0.1:3000/` refused the connection (18:47), which is why the page was
+    driven through `localhost`.
+
+### Gaps recorded at M4
+
+- The handler that opens the jail and builds the registry is still guarded by no test, and it now decides
+  which two tools a run gets.
+- The exclusive open is not covered by a test: removing `wx` left all 9 tests passing, because the
+  pre-open check carries the create-only promise today. Closing that gap needs a name appearing between the
+  check and the open, which a synchronous tool makes hard to drive honestly.
+- No test drives a tool past its deadline, and every tool that exists does its work synchronously, so a
+  deadline cannot interrupt it today.
+- `maxResults` and `maxDepth` are still declared budgets no tool consumes; there is still no per-call
+  budget override.
+- There is no overwrite, append or edit-in-place path in any tool, and a tool cannot create a directory.
+  The targeted edit remains M8.
+- A trace still records no per-tool or per-run duration.
+
 ## 0.0.4 — 2026-11-08 — M3
 
 A run can now be given tools. The harness keeps the list of tools it has, validates and bounds every
